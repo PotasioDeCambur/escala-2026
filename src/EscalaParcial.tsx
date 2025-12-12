@@ -9,9 +9,17 @@ import './App.css';
 function EscalaParcial() {
   const [escala, setEscala] = useState<EscalaData>(() => {
     const savedEscala = localStorage.getItem('escala-horarios');
-    return savedEscala ? JSON.parse(savedEscala) : dadosIniciais;
+    let parsedEscala = savedEscala ? JSON.parse(savedEscala) : dadosIniciais;
+    // Garantir que sempre há funcionários
+    if (!parsedEscala.funcionarios || parsedEscala.funcionarios.length === 0) {
+      parsedEscala = {
+        ...parsedEscala,
+        funcionarios: dadosIniciais.funcionarios
+      };
+    }
+    return parsedEscala;
   });
-  const [anoAtual, setAnoAtual] = useState<number>(2024);
+  const [anoAtual, setAnoAtual] = useState<number>(() => new Date().getFullYear());
   const [isEditing, setIsEditing] = useState(false);
   const [dataInicial, setDataInicial] = useState<string>('');
   const [dataFinal, setDataFinal] = useState<string>('');
@@ -22,27 +30,34 @@ function EscalaParcial() {
     setAnoAtual(novoAno);
   };
 
-  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([
-    { id: 1, nome: "FILIPE", cor: "#4CAF50" },
-    { id: 2, nome: "ARMANDO", cor: "#2196F3" },
-    { id: 3, nome: "DAYANE", cor: "#FF9800" },
-    { id: 4, nome: "JOAO P", cor: "#9C27B0" }
-  ]);
+  // Usar funcionários da escala diretamente
+  const funcionarios = escala.funcionarios || dadosIniciais.funcionarios;
 
-  const turnos = [
-    "", // Opção vazia
-    "10H AS 16H",
-    "10H AS 19H", 
-    "10H AS 20H",
-    "12H AS 19H",
-    "13H AS 19H",
-    "13H AS 20H",
-    "13H AS 21H",
-    "13H AS 22H",
-    "16H AS 22H",
-    "FOLGA",
-    "FERIADO"
-  ];
+  // Construir opções do seletor a partir do gerenciador (localStorage) + marcadores especiais
+  const readFrequent = () => {
+    try {
+      const raw = localStorage.getItem('horarios-frequentes');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.map((s: any) => String(s).trim()).filter(Boolean) : [];
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const readPaused = () => {
+    try {
+      const raw = localStorage.getItem('horarios-pausados');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.map((s: any) => String(s).trim()).filter(Boolean) : [];
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const frequent = readFrequent();
+  const paused = readPaused();
+  const buildUnique = (arr: string[]) => Array.from(new Set(arr));
+  const turnos = buildUnique(["", ...frequent.filter(f => !paused.includes(f)), "FOLGA", "ATESTADO", "FERIADO"]);
 
   const diasSemana = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'];
 
@@ -157,16 +172,18 @@ function EscalaParcial() {
       nome: `FUNCIONARIO ${novoId}`,
       cor: `#${Math.floor(Math.random()*16777215).toString(16)}`
     };
-    setFuncionarios([...funcionarios, novoFuncionario]);
+    setEscala(prevEscala => ({
+      ...prevEscala,
+      funcionarios: [...prevEscala.funcionarios, novoFuncionario]
+    }));
   };
 
   const handleRemoveFuncionario = (funcionarioIdToRemove: number) => {
     if (window.confirm('Tem certeza que deseja remover este funcionário?')) {
-      setFuncionarios(funcionarios.filter(f => f.id !== funcionarioIdToRemove));
-      
-      // Remove os horários do funcionário da escala
+      // Remove funcionário e seus horários da escala
       setEscala(prevEscala => ({
         ...prevEscala,
+        funcionarios: prevEscala.funcionarios.filter(f => f.id !== funcionarioIdToRemove),
         dias: prevEscala.dias.map(dia => ({
           ...dia,
           horarios: dia.horarios.filter(h => h.funcionarioId !== funcionarioIdToRemove)
@@ -181,9 +198,12 @@ function EscalaParcial() {
     
     const novoNome = prompt('Digite o novo nome do funcionário:', funcionario.nome);
     if (novoNome && novoNome.trim()) {
-      setFuncionarios(funcionarios.map(f => 
-        f.id === funcionarioId ? { ...f, nome: novoNome.trim() } : f
-      ));
+      setEscala(prevEscala => ({
+        ...prevEscala,
+        funcionarios: prevEscala.funcionarios.map(f => 
+          f.id === funcionarioId ? { ...f, nome: novoNome.trim() } : f
+        )
+      }));
     }
   };
 

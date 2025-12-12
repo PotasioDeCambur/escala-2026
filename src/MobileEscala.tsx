@@ -1,381 +1,490 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { EscalaData, Funcionario, DiaEscala } from './types';
-import { dadosIniciais } from './data';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import './MobileEscala.css';
+import { getEscalaById } from './supabaseClient';
 
-function gerarIdCompartilhamento() {
-  return Math.random().toString(36).substr(2, 8) + Date.now().toString(36).substr(-4);
+interface Funcionario {
+    id: number;
+    nome: string;
+    horario?: string;
 }
 
-function MobileEscala() {
-  const { linkId } = useParams();
-  const navigate = useNavigate();
-  const [escala, setEscala] = useState<EscalaData>(() => {
-    if (linkId) {
-      const saved = localStorage.getItem('escala-compartilhada-' + linkId);
-      return saved ? JSON.parse(saved) : { funcionarios: [], dias: [] };
-    } else {
-      const savedEscala = localStorage.getItem('escala-horarios');
-      return savedEscala ? JSON.parse(savedEscala) : dadosIniciais;
-    }
-  });
-  const [mesAtual, setMesAtual] = useState<number>(7);
-  const [anoAtual, setAnoAtual] = useState<number>(2024);
-  const [currentDayIndex, setCurrentDayIndex] = useState<number>(0);
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-  const [touchEnd, setTouchEnd] = useState<number | null>(null);
-  const [linkGerado, setLinkGerado] = useState<string | null>(null);
-  const [copiado, setCopiado] = useState(false);
+interface DiaEscala {
+    dia: number;
+    diaSemana: string;
+    nomeDia: string;
+    data: Date;
+    funcionarios: Funcionario[];
+}
 
-  useEffect(() => {
-    if (linkId && escala.funcionarios.length === 0) {
-      // Se não encontrou escala, mostra alerta
-      setLinkGerado('NOT_FOUND');
-    }
-  }, [linkId, escala]);
+interface EscalaData {
+    dias: DiaEscala[];
+    vencedorId?: number;
+}
 
-  const handleCompartilhar = () => {
-    const id = gerarIdCompartilhamento();
-    localStorage.setItem('escala-compartilhada-' + id, JSON.stringify(escala));
-    const url = window.location.origin + '/mobile/' + id;
-    setLinkGerado(url);
-    // Redireciona para o link compartilhado para simular a experiência do funcionário
-    navigate('/mobile/' + id);
-  };
+const MobileEscala: React.FC = () => {
+    const [escala, setEscala] = useState<EscalaData>({ dias: [] });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [currentDayIndex, setCurrentDayIndex] = useState(0);
+    const [mesAtual, setMesAtual] = useState(new Date().getMonth() + 1);
+    const [anoAtual, setAnoAtual] = useState(new Date().getFullYear());
+    const [isEscalaParcial, setIsEscalaParcial] = useState(false);
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const headerRef = useRef<HTMLDivElement>(null);
+    const [headerOffset, setHeaderOffset] = useState(140);
 
-  const handleCopy = async () => {
-    if (linkGerado && linkGerado !== 'NOT_FOUND') {
-      try {
-        await navigator.clipboard.writeText(linkGerado);
-        setCopiado(true);
-        setTimeout(() => setCopiado(false), 3000);
-      } catch {
-        // Fallback para navegadores mais antigos
-        const textArea = document.createElement('textarea');
-        textArea.value = linkGerado;
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-        setCopiado(true);
-        setTimeout(() => setCopiado(false), 3000);
-      }
-    }
-  };
+    const updateHeaderOffset = useCallback(() => {
+        if (!headerRef.current) {
+            return;
+        }
 
-  const meses = [
-    { valor: 1, nome: 'Janeiro' },
-    { valor: 2, nome: 'Fevereiro' },
-    { valor: 3, nome: 'Março' },
-    { valor: 4, nome: 'Abril' },
-    { valor: 5, nome: 'Maio' },
-    { valor: 6, nome: 'Junho' },
-    { valor: 7, nome: 'Julho' },
-    { valor: 8, nome: 'Agosto' },
-    { valor: 9, nome: 'Setembro' },
-    { valor: 10, nome: 'Outubro' },
-    { valor: 11, nome: 'Novembro' },
-    { valor: 12, nome: 'Dezembro' }
-  ];
+        const measuredHeight = headerRef.current.getBoundingClientRect().height;
+        const spacing = 16; // espaço extra para garantir respiro visual abaixo do header
+        setHeaderOffset(Math.max(measuredHeight + spacing, 140));
+    }, []);
 
-  const anos = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 2 + i);
+    useLayoutEffect(() => {
+        updateHeaderOffset();
+    }, [updateHeaderOffset]);
 
-  const handleMesChange = (novoMes: number) => {
-    setMesAtual(novoMes);
-    setCurrentDayIndex(0);
-  };
+    useEffect(() => {
+        const handleResize = () => updateHeaderOffset();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, [updateHeaderOffset]);
 
-  const handleAnoChange = (novoAno: number) => {
-    setAnoAtual(novoAno);
-    setCurrentDayIndex(0);
-  };
+    useEffect(() => {
+        if (!headerRef.current || typeof window === 'undefined' || !('ResizeObserver' in window)) {
+            return;
+        }
 
-  const getNomeMes = (mes: number) => {
-    return meses.find(m => m.valor === mes)?.nome || '';
-  };
+        const observer = new ResizeObserver(() => updateHeaderOffset());
+        observer.observe(headerRef.current);
+        return () => observer.disconnect();
+    }, [updateHeaderOffset]);
 
-  const getDiasMes = (mes: number, ano: number) => {
-    const diasNoMes = new Date(ano, mes, 0).getDate();
-    const diasSemana = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'];
-    const nomesDias = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-    return Array.from({ length: diasNoMes }, (_, i) => {
-      const dia = i + 1;
-      const data = new Date(ano, mes - 1, dia);
-      const diaSemana = diasSemana[data.getDay()];
-      const nomeDia = nomesDias[data.getDay()];
-      const dataFormatada = `${dia.toString().padStart(2, '0')}/${mes.toString().padStart(2, '0')}`;
-      return {
-        dia,
-        diaSemana,
-        nomeDia,
-        data: dataFormatada,
-        mes
-      };
-    });
-  };
+    // Obtém o ID da escala da URL
+    const getLinkId = () => {
+        const path = window.location.pathname;
+        // Tenta primeiro o padrão /mobile/:linkId
+        let match = path.match(/\/mobile\/([a-zA-Z0-9-]+)/);
+        if (match) return match[1];
+        // Tenta também o padrão /escala/:linkId (para compatibilidade)
+        match = path.match(/\/escala\/([a-zA-Z0-9-]+)/);
+        return match ? match[1] : null;
+    };
 
-  const getHorarioFuncionario = (dia: number, funcionarioId: number) => {
-    const diaEscala = escala.dias.find(d => d.dia === dia);
-    if (!diaEscala) {
-      return '';
-    }
-    const horario = diaEscala.horarios.find(h => h.funcionarioId === funcionarioId);
-    return horario ? horario.horario : '';
-  };
+    // Obtém os dados da escala da query string
+    const getSharedData = () => {
+        const params = new URLSearchParams(window.location.search);
+        const data = params.get('data');
+        if (data) {
+            try {
+                const jsonString = decodeURIComponent(atob(data));
+                return JSON.parse(jsonString);
+            } catch (error) {
+                console.error('Erro ao decodificar dados compartilhados:', error);
+                return null;
+            }
+        }
+        return null;
+    };
 
-  const isFeriado = (data: string) => {
-    const feriados = [
-      '01/01', '21/04', '01/05', '07/09', '12/10', '02/11', '15/11', '25/12'
-    ];
-    const diaMes = data.split(' ')[0];
-    return feriados.includes(diaMes);
-  };
+    const linkId = getLinkId();
+    const sharedDataFromUrl = getSharedData();
 
-  const isFimDeSemana = (diaSemana: string) => {
-    return diaSemana === 'DOM' || diaSemana === 'SAB';
-  };
+    const getNomeMes = (mes: number) => {
+        const meses = [
+            'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+            'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+        ];
+        return meses[mes - 1];
+    };
 
-  const diasMes = getDiasMes(mesAtual, anoAtual);
-  const funcionarios = escala.funcionarios;
+    const isFeriado = (data: Date) => {
+        // Implementar lógica de feriados se necessário
+        return false;
+    };
 
-  // Estrutura da escala carregada
+    const isFimDeSemana = (diaSemana: string) => {
+        return diaSemana === 'Sábado' || diaSemana === 'Domingo' || diaSemana === 'Sab' || diaSemana === 'Dom';
+    };
 
-  if (linkId && linkGerado === 'NOT_FOUND') {
-    return (
-      <div className="mobile-escala-container">
-        <div className="error-container">
-          <h1>🔍 Escala Não Encontrada</h1>
-          <p>O link que você está tentando acessar não existe ou expirou.</p>
-          <p>Entre em contato com o administrador para obter um novo link.</p>
-          <button onClick={() => navigate('/')} className="back-button">
-            ← Voltar ao Sistema
-          </button>
-        </div>
-      </div>
-    );
-  }
+    const handleScroll = () => {
+        if (scrollRef.current) {
+            const scrollLeft = scrollRef.current.scrollLeft;
+            const width = scrollRef.current.offsetWidth;
+            const index = Math.round(scrollLeft / width);
+            if (index !== currentDayIndex) {
+                setCurrentDayIndex(index);
+            }
+        }
+    };
 
-  // Touch handlers para swipe
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStart(e.targetTouches[0].clientX);
-  };
+    const handleDayClick = (index: number) => {
+        if (scrollRef.current) {
+            const width = scrollRef.current.offsetWidth;
+            scrollRef.current.scrollTo({
+                left: index * width,
+                behavior: 'smooth'
+            });
+            setCurrentDayIndex(index);
+        }
+    };
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    setTouchEnd(e.targetTouches[0].clientX);
-  };
+    // Gera os dias do mês
+    const getDiasMes = (mes: number, ano: number) => {
+        const dias = [];
+        const data = new Date(ano, mes - 1, 1);
+        const diasSemana = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
-  const handleTouchEnd = () => {
-    if (!touchStart || !touchEnd) return;
-    
-    const distance = touchStart - touchEnd;
-    const isLeftSwipe = distance > 50;
-    const isRightSwipe = distance < -50;
+        while (data.getMonth() === mes - 1) {
+            dias.push({
+                dia: data.getDate(),
+                diaSemana: diasSemana[data.getDay()],
+                nomeDia: diasSemana[data.getDay()],
+                data: new Date(data)
+            });
+            data.setDate(data.getDate() + 1);
+        }
+        return dias;
+    };
 
-    if (isLeftSwipe && currentDayIndex < diasMes.length - 1) {
-      setCurrentDayIndex(currentDayIndex + 1);
-    } else if (isRightSwipe && currentDayIndex > 0) {
-      setCurrentDayIndex(currentDayIndex - 1);
-    }
+    const diasMes = getDiasMes(mesAtual, anoAtual);
 
-    setTouchStart(null);
-    setTouchEnd(null);
-  };
+    // Converte a estrutura de dados do formato App.tsx para o formato MobileEscala
+    const converterEstruturaDados = (dadosOriginais: any, mes?: number, ano?: number) => {
+        if (!dadosOriginais || !dadosOriginais.dias) return { dias: [] };
 
-  const handleCardClick = (index: number) => {
-    setCurrentDayIndex(index);
-  };
+        // Se já está no formato correto (com funcionarios dentro de cada dia), retorna como está
+        if (dadosOriginais.dias.length > 0 && dadosOriginais.dias[0].funcionarios) {
+            return dadosOriginais;
+        }
 
-  const getFuncionariosComHorario = (dia: number) => {
-    const funcionariosComHorario = funcionarios
-      .map(func => {
-        const horario = getHorarioFuncionario(dia, func.id);
+        // Converte do formato { dias: [{ dia, horarios: [{ funcionarioId, horario }] }] }
+        // para o formato { dias: [{ dia, funcionarios: [{ id, nome, horario }] }] }
+        // Garantir que funcionários existem - se não, usar dados padrão
+        let funcionarios = dadosOriginais.funcionarios || [];
+        if (!funcionarios || funcionarios.length === 0) {
+            // Se não há funcionários salvos, usar os padrão
+            funcionarios = [
+                { id: 1, nome: "FILIPE", cor: "#4CAF50" },
+                { id: 2, nome: "ARMANDO", cor: "#2196F3" },
+                { id: 3, nome: "DAYANE", cor: "#FF9800" },
+                { id: 4, nome: "JOAO P", cor: "#9C27B0" }
+            ];
+        }
+        const funcionariosMap = new Map(funcionarios.map((f: any) => [f.id, f]));
+
+        // Usa o mês e ano fornecidos ou usa o mês/ano atual como padrão
+        const hoje = new Date();
+        const mesParaCalculo = mes || mesAtual || (hoje.getMonth() + 1);
+        const anoParaCalculo = ano || anoAtual || hoje.getFullYear();
+        const diasSemana = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+        const diasConvertidos = dadosOriginais.dias.map((diaEscala: any) => {
+            // Calcula a data completa para obter dia da semana
+            const dataCompleta = new Date(anoParaCalculo, mesParaCalculo - 1, diaEscala.dia);
+            const diaSemana = diasSemana[dataCompleta.getDay()];
+
+            const funcionariosDoDia = (diaEscala.horarios || []).map((horario: any) => {
+                const funcionario = funcionariosMap.get(horario.funcionarioId) as { nome?: string } | undefined;
+                return {
+                    id: horario.funcionarioId,
+                    nome: funcionario?.nome || `Funcionário ${horario.funcionarioId}`,
+                    horario: horario.horario || ''
+                };
+            });
+
+            return {
+                dia: diaEscala.dia,
+                diaSemana: diaEscala.diaSemana || diaSemana,
+                nomeDia: diaEscala.nomeDia || diaSemana,
+                data: diaEscala.data || dataCompleta,
+                funcionarios: funcionariosDoDia
+            };
+        });
+
         return {
-          ...func,
-          horario: horario
+            dias: diasConvertidos,
+            vencedorId: dadosOriginais.vencedorId
         };
-      })
-      .sort((a, b) => {
-        // Ordena por horário de início (se tiver horário)
-        if (!a.horario && !b.horario) return 0;
-        if (!a.horario) return 1;
-        if (!b.horario) return -1;
+    };
+
+    // Filtra funcionários com horário para o dia
+    const getFuncionariosComHorario = (dia: number) => {
+        const diaEscala = escala.dias.find(d => d.dia === dia);
+        if (!diaEscala || !diaEscala.funcionarios || !Array.isArray(diaEscala.funcionarios)) return [];
+
+        // Ordena: primeiro quem trabalha (por horário), depois folga
+        const funcionariosComHorario = [...diaEscala.funcionarios]
+            .filter(f => f.horario) // Remove quem não tem horário definido
+            .sort((a, b) => {
+                if (a.horario === 'FOLGA' && b.horario !== 'FOLGA') return 1;
+                if (a.horario !== 'FOLGA' && b.horario === 'FOLGA') return -1;
+                if (a.horario === 'FOLGA' && b.horario === 'FOLGA') return a.nome.localeCompare(b.nome);
+
+                // Ordena por horário de início
+                const getHoraInicio = (h: string) => {
+                    if (!h || h === 'ATESTADO') return 999;
+                    const match = h.match(/(\d+)H/);
+                    return match ? parseInt(match[1]) : 999;
+                };
+
+                const horaA = getHoraInicio(a.horario || '');
+                const horaB = getHoraInicio(b.horario || '');
+
+                if (horaA === horaB) {
+                    return a.nome.localeCompare(b.nome);
+                }
+
+                return horaA - horaB;
+            });
+
+        return funcionariosComHorario;
+    };
+
+    const getDiaAtual = () => {
+        const hoje = new Date();
+        const diaHoje = hoje.getDate();
+        const mesHoje = hoje.getMonth() + 1;
+        const anoHoje = hoje.getFullYear();
+
+        if (mesHoje === mesAtual && anoHoje === anoAtual) {
+            return diasMes.findIndex(dia => dia.dia === diaHoje);
+        }
+        return 0;
+    };
+
+    // Carrega dados da escala
+    useEffect(() => {
+        const sharedData = getSharedData();
         
-        const horaA = parseInt(a.horario.split('H')[0]);
-        const horaB = parseInt(b.horario.split('H')[0]);
-        return horaA - horaB;
-      });
-    
+        console.log('🔍 Debug MobileEscala:', { linkId, hasGetEscalaById: !!getEscalaById, hasSharedData: !!sharedData });
 
-    
-    return funcionariosComHorario;
-  };
+        // Primeiro, tenta carregar dados compartilhados via URL
+        if (sharedData) {
+            console.log('📡 Carregando dados compartilhados da URL');
+            try {
+                setMesAtual(sharedData.mes || mesAtual);
+                setAnoAtual(sharedData.ano || anoAtual);
+                const escalaConvertida = converterEstruturaDados(sharedData, sharedData.mes, sharedData.ano);
+                setEscala(escalaConvertida);
+                setLoading(false);
+                console.log('✅ Escala carregada com sucesso dos dados compartilhados:', escalaConvertida);
+                return;
+            } catch (error) {
+                console.error('❌ Erro ao processar dados compartilhados:', error);
+            }
+        }
 
-  const getDiaAtual = () => {
-    const hoje = new Date();
-    const diaHoje = hoje.getDate();
-    const mesHoje = hoje.getMonth() + 1;
-    const anoHoje = hoje.getFullYear();
-    
-    if (mesHoje === mesAtual && anoHoje === anoAtual) {
-      return diasMes.findIndex(dia => dia.dia === diaHoje);
-    }
-    return 0;
-  };
+        if (linkId && getEscalaById) {
+            setLoading(true);
+            console.log('📡 Tentando carregar escala do Supabase com ID:', linkId);
 
-  useEffect(() => {
-    // Define o dia atual como padrão
-    const diaAtualIndex = getDiaAtual();
-    if (diaAtualIndex >= 0) {
-      setCurrentDayIndex(diaAtualIndex);
-    }
-  }, [mesAtual, anoAtual]);
+            getEscalaById(linkId)
+                .then((row: any) => {
+                    console.log('✅ Dados recebidos do Supabase:', row);
+                    if (row && row.data) {
+                        setMesAtual(row.mes);
+                        setAnoAtual(row.ano);
+                        const escalaConvertida = converterEstruturaDados(row.data, row.mes, row.ano);
+                        setEscala(escalaConvertida);
 
-  const currentDay = diasMes[currentDayIndex];
-  const funcionariosComHorario = getFuncionariosComHorario(currentDay.dia);
+                        const totalDiasNoMes = new Date(row.ano, row.mes, 0).getDate();
+                        const diasComDados = row.data.dias.length;
+                        const isParcial = diasComDados < totalDiasNoMes * 0.5;
+                        setIsEscalaParcial(isParcial);
 
-  return (
-    <div className="mobile-escala-container">
-      {copiado && (
-        <div className="copy-success">
-          ✅ Link copiado com sucesso!
-        </div>
-      )}
-      <div className="mobile-header">
-        <div className="mobile-title">
-          <h1>📅 Escala Mobile</h1>
-          <p>{getNomeMes(mesAtual)} {anoAtual}</p>
-          {linkId && (
-            <div className="shared-badge">
-              🔗 Visualização Compartilhada
+                        console.log('✅ Escala carregada com sucesso:', escalaConvertida);
+                        console.log(`📊 Tipo: ${isParcial ? 'Escala Parcial' : 'Escala Completa'}`);
+                    } else {
+                        console.warn('⚠️ Dados vazios recebidos do Supabase');
+                        setError('Escala não encontrada. Pode ter sido removida ou o link está incorreto.');
+                    }
+                    setLoading(false);
+                })
+                .catch((err: any) => {
+                    console.error('❌ Erro ao carregar escala:', err);
+                    const savedEscala = localStorage.getItem('escala-horarios');
+                    if (savedEscala) {
+                        try {
+                            const parsedEscala = JSON.parse(savedEscala);
+                            const savedVencedorId = localStorage.getItem('vencedor-id');
+                            if (savedVencedorId) {
+                                parsedEscala.vencedorId = parseInt(savedVencedorId, 10);
+                            }
+                            const escalaConvertida = converterEstruturaDados(parsedEscala);
+                            setEscala(escalaConvertida);
+                        } catch (parseError) {
+                            console.error('Erro ao parse localStorage:', parseError);
+                        }
+                    }
+                    setLoading(false);
+                });
+        } else {
+            const savedEscala = localStorage.getItem('escala-horarios');
+            if (savedEscala) {
+                try {
+                    const parsedEscala = JSON.parse(savedEscala);
+                    const savedVencedorId = localStorage.getItem('vencedor-id');
+                    if (savedVencedorId) {
+                        parsedEscala.vencedorId = parseInt(savedVencedorId, 10);
+                    }
+                    const escalaConvertida = converterEstruturaDados(parsedEscala);
+                    setEscala(escalaConvertida);
+                    console.log('✅ Dados convertidos do localStorage:', escalaConvertida);
+                } catch (parseError) {
+                    console.error('Erro ao parse localStorage:', parseError);
+                }
+            }
+            setLoading(false);
+        }
+    }, [linkId]);
+
+    useEffect(() => {
+        if (!loading && diasMes.length > 0) {
+            const diaAtualIndex = getDiaAtual();
+            if (diaAtualIndex >= 0) {
+                setCurrentDayIndex(diaAtualIndex);
+                setTimeout(() => {
+                    if (scrollRef.current) {
+                        const width = scrollRef.current.offsetWidth;
+                        scrollRef.current.scrollTo({
+                            left: diaAtualIndex * width,
+                            behavior: 'auto'
+                        });
+                    }
+                }, 100);
+            }
+        }
+    }, [mesAtual, anoAtual, loading, diasMes.length]);
+
+    if (loading) {
+        return (
+            <div className="mobile-escala-container">
+                <div className="mobile-header">
+                    <h1>📅 Carregando escala...</h1>
+                </div>
+                <div className="mobile-loading">
+                    <p>⏳ Buscando dados da escala...</p>
+                </div>
             </div>
-          )}
-        </div>
-        <div className="mobile-selectors">
-          <select value={mesAtual} onChange={(e) => handleMesChange(Number(e.target.value))} className="mobile-select">
-            {meses.map(mes => (
-              <option key={mes.valor} value={mes.valor}>{mes.nome}</option>
-            ))}
-          </select>
-          <select value={anoAtual} onChange={(e) => handleAnoChange(Number(e.target.value))} className="mobile-select">
-            {anos.map(ano => (
-              <option key={ano} value={ano}>{ano}</option>
-            ))}
-          </select>
-        </div>
-        {!linkId && (
-          <button onClick={handleCompartilhar} className="share-button">
-            🔗 Gerar Link Compartilhável
-          </button>
-        )}
-        {linkGerado && linkGerado !== 'NOT_FOUND' && (
-          <div className="share-link-container">
-            <h3 style={{ color: 'white', marginBottom: '15px', textAlign: 'center' }}>
-              🔗 Link Compartilhável Gerado
-            </h3>
-            <p style={{ color: 'rgba(255,255,255,0.8)', marginBottom: '15px', textAlign: 'center', fontSize: '0.9em' }}>
-              Copie este link e envie para os funcionários para que eles possam visualizar a escala
-            </p>
-            <input type="text" value={linkGerado} readOnly className="share-link-input" />
-            <button onClick={handleCopy} className="copy-link-btn">
-              {copiado ? '✅ Copiado!' : '📋 Copiar Link'}
-            </button>
-          </div>
-        )}
-      </div>
+        );
+    }
 
-      {/* Carrossel de Cards */}
-      <div className="carousel-container">
-        <div className="carousel-track">
-          {diasMes.map((dia, index) => {
-            const isActive = index === currentDayIndex;
-            const isPrev = index === currentDayIndex - 1;
-            const isNext = index === currentDayIndex + 1;
-            const funcionariosDia = getFuncionariosComHorario(dia.dia);
-            
-            return (
-              <div
-                key={dia.dia}
-                className={`carousel-card ${isActive ? 'active' : ''} ${isPrev ? 'prev' : ''} ${isNext ? 'next' : ''}`}
-                onClick={() => handleCardClick(index)}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-              >
-                <div className="card-header">
-                  <div className="card-date">
-                    <span className="date-number">{dia.dia.toString().padStart(2, '0')}</span>
-                    <span className="date-month">/{mesAtual.toString().padStart(2, '0')}</span>
-                  </div>
-                  <div className="card-day">
-                    {dia.nomeDia}
-                    {isFeriado(dia.data) && <span className="holiday-badge">🎉</span>}
-                  </div>
+    return (
+        <div className="mobile-escala-container">
+            <div className="mobile-header" ref={headerRef}>
+                <div className="mobile-title">
+                    <h1>📅 Escala</h1>
+                    <p>{getNomeMes(mesAtual)} {anoAtual}</p>
+                    {isEscalaParcial && (
+                        <p className="escala-parcial-info">
+                            📊 Período específico - {escala.dias.length} dias
+                        </p>
+                    )}
                 </div>
+                {!linkId && !sharedDataFromUrl && (
+                    <button
+                        onClick={() => window.location.href = '/'}
+                        className="back-to-system-btn"
+                        title="Voltar ao sistema principal"
+                    >
+                        ← Sistema
+                    </button>
+                )}
+            </div>
 
-                <div className="card-content">
-                  {funcionariosDia.map(func => (
-                    <div key={func.id} className={`funcionario-item ${!func.horario ? 'no-horario' : ''} ${func.horario === 'FOLGA' ? 'folga' : ''} ${func.horario === 'FERIADO' ? 'feriado' : ''}`}>
-                      <span className="horario">
-                        {func.horario || 'Sem horário'}
-                      </span>
-                      <span className="nome">- {func.nome}</span>
+            <div className="main-content" style={{ paddingTop: `${headerOffset}px` }}>
+                {error && !loading && (
+                    <div className="error-banner">
+                        <p>⚠️ {error}</p>
                     </div>
-                  ))}
+                )}
+
+                <div className="days-container" ref={scrollRef} onScroll={handleScroll}>
+                    {diasMes.map((dia, index) => {
+                        const funcionariosDoDia = getFuncionariosComHorario(dia.dia);
+                        return (
+                            <div key={index} className="day-slide">
+                                <div className="day-card">
+                                    <div className="card-header">
+                                        <div className="card-date">
+                                            <div className="date-number">{dia.dia.toString().padStart(2, '0')}</div>
+                                            <div className="date-month">/ {mesAtual.toString().padStart(2, '0')}</div>
+                                        </div>
+                                        <div className="card-day">
+                                            {dia.nomeDia}
+                                            {isFeriado(dia.data) && <span className="holiday-badge">Feriado</span>}
+                                            {isFimDeSemana(dia.diaSemana) && <span className="weekend-badge">Fim de Semana</span>}
+                                        </div>
+                                    </div>
+
+                                    <div className="card-content">
+                                        {funcionariosDoDia.length > 0 ? (
+                                            funcionariosDoDia.map(func => (
+                                                <div
+                                                    key={func.id}
+                                                    className={`funcionario-item ${func.horario === 'FOLGA' ? 'folga' : ''} ${func.horario === 'ATESTADO' ? 'atestado' : ''} ${!func.horario ? 'no-horario' : ''} ${isFeriado(dia.data) ? 'feriado' : ''}`}
+                                                >
+                                                    <div className={`horario ${func.horario === 'ATESTADO' ? 'atestado' : ''}`}>
+                                                        {func.horario ? (func.horario === 'ATESTADO' ? 'ATESTADO 🤒' : func.horario.replace(/(\d+H) AS (\d+H)/, '$1 - $2')) : '--:--'}
+                                                    </div>
+                                                    <div className="nome">
+                                                        {func.nome}
+                                                        {escala.vencedorId === func.id && (
+                                                            <span className="crown-icon"> 👑</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="no-schedule">
+                                                <p>Nenhum funcionário escalado</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="card-footer">
+                                        <div className="day-indicator">
+                                            Dia {index + 1} de {diasMes.length}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
+            </div>
 
-                <div className="card-footer">
-                  <div className="day-indicator">
-                    {index + 1} de {diasMes.length}
-                  </div>
+            <div className="date-navigation">
+                <div className="date-carousel">
+                    {diasMes.map((dia, index) => (
+                        <button
+                            key={index}
+                            className={`date-item ${index === currentDayIndex ? 'active' : ''}`}
+                            onClick={() => handleDayClick(index)}
+                            title={`${dia.nomeDia} - ${dia.dia}/${mesAtual}`}
+                        >
+                            <div className="date-number">{dia.dia}</div>
+                            <div className="date-weekday">{dia.diaSemana.slice(0, 3)}</div>
+                            {isFeriado(dia.data) && <div className="nav-dot holiday">●</div>}
+                        </button>
+                    ))}
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+            </div>
 
-      {/* Navegação */}
-      <div className="mobile-navigation">
-        <button 
-          className="nav-button"
-          onClick={() => setCurrentDayIndex(Math.max(0, currentDayIndex - 1))}
-          disabled={currentDayIndex === 0}
-        >
-          ← Anterior
-        </button>
-        
-        <div className="nav-dots">
-          {diasMes.map((_, index) => (
-            <button
-              key={index}
-              className={`nav-dot ${index === currentDayIndex ? 'active' : ''}`}
-              onClick={() => setCurrentDayIndex(index)}
-            />
-          ))}
+            <div className="mobile-instructions">
+                <p>💡 Clique nos círculos com as datas para navegar rapidamente ou deslize para os lados</p>
+                {!linkId && !sharedDataFromUrl && (
+                    <button onClick={() => window.location.href = '/'} className="back-button">
+                        ← Voltar ao Sistema
+                    </button>
+                )}
+            </div>
         </div>
-        
-        <button 
-          className="nav-button"
-          onClick={() => setCurrentDayIndex(Math.min(diasMes.length - 1, currentDayIndex + 1))}
-          disabled={currentDayIndex === diasMes.length - 1}
-        >
-          Próximo →
-        </button>
-      </div>
-
-      {/* Instruções */}
-      <div className="mobile-instructions">
-        <p>💡 Deslize para navegar entre os dias ou use os botões</p>
-        <button 
-          onClick={() => window.location.href = '/'} 
-          className="back-button"
-        >
-          ← Voltar ao Sistema
-        </button>
-      </div>
-    </div>
-  );
+    );
 }
 
-export default MobileEscala; 
+export default MobileEscala;
