@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import './MobileEscala.css';
-import { getEscalaById } from './supabaseClient';
+import { getEscalaById, supabase } from './supabaseClient';
+import { getNomeMes, isFeriado, isFimDeSemana } from './utils/dateUtils';
 
 interface Funcionario {
     id: number;
@@ -19,6 +20,7 @@ interface DiaEscala {
 interface EscalaData {
     dias: DiaEscala[];
     vencedorId?: number;
+    isParcial?: boolean;
 }
 
 const MobileEscala: React.FC = () => {
@@ -32,6 +34,7 @@ const MobileEscala: React.FC = () => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLDivElement>(null);
     const [headerOffset, setHeaderOffset] = useState(140);
+    const [showUpdateToast, setShowUpdateToast] = useState(false);
 
     const updateHeaderOffset = useCallback(() => {
         if (!headerRef.current) {
@@ -93,22 +96,7 @@ const MobileEscala: React.FC = () => {
     const linkId = getLinkId();
     const sharedDataFromUrl = getSharedData();
 
-    const getNomeMes = (mes: number) => {
-        const meses = [
-            'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-            'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-        ];
-        return meses[mes - 1];
-    };
 
-    const isFeriado = (data: Date) => {
-        // Implementar lógica de feriados se necessário
-        return false;
-    };
-
-    const isFimDeSemana = (diaSemana: string) => {
-        return diaSemana === 'Sábado' || diaSemana === 'Domingo' || diaSemana === 'Sab' || diaSemana === 'Dom';
-    };
 
     const handleScroll = () => {
         if (scrollRef.current) {
@@ -150,7 +138,12 @@ const MobileEscala: React.FC = () => {
         return dias;
     };
 
-    const diasMes = getDiasMes(mesAtual, anoAtual);
+    const diasMes = useMemo(() => {
+        if (isEscalaParcial && escala.dias.length > 0) {
+            return [...escala.dias].sort((a, b) => a.dia - b.dia);
+        }
+        return getDiasMes(mesAtual, anoAtual);
+    }, [isEscalaParcial, escala.dias, mesAtual, anoAtual]);
 
     // Converte a estrutura de dados do formato App.tsx para o formato MobileEscala
     const converterEstruturaDados = (dadosOriginais: any, mes?: number, ano?: number) => {
@@ -207,7 +200,8 @@ const MobileEscala: React.FC = () => {
 
         return {
             dias: diasConvertidos,
-            vencedorId: dadosOriginais.vencedorId
+            vencedorId: dadosOriginais.vencedorId,
+            isParcial: dadosOriginais.isParcial
         };
     };
 
@@ -259,7 +253,7 @@ const MobileEscala: React.FC = () => {
     // Carrega dados da escala
     useEffect(() => {
         const sharedData = getSharedData();
-        
+
         console.log('🔍 Debug MobileEscala:', { linkId, hasGetEscalaById: !!getEscalaById, hasSharedData: !!sharedData });
 
         // Primeiro, tenta carregar dados compartilhados via URL
@@ -294,7 +288,8 @@ const MobileEscala: React.FC = () => {
                         const totalDiasNoMes = new Date(row.ano, row.mes, 0).getDate();
                         const diasComDados = row.data.dias.length;
                         const isParcial = diasComDados < totalDiasNoMes * 0.5;
-                        setIsEscalaParcial(isParcial);
+                        const isParcialHeuristic = diasComDados < totalDiasNoMes * 0.5;
+                        setIsEscalaParcial(escalaConvertida.isParcial || isParcialHeuristic);
 
                         console.log('✅ Escala carregada com sucesso:', escalaConvertida);
                         console.log(`📊 Tipo: ${isParcial ? 'Escala Parcial' : 'Escala Completa'}`);
@@ -342,6 +337,67 @@ const MobileEscala: React.FC = () => {
         }
     }, [linkId]);
 
+    // Realtime Updates Implementation
+    useEffect(() => {
+        if (!linkId || !supabase) return;
+
+        console.log('🔌 Iniciando conexão Realtime para:', linkId);
+
+        const channel = supabase
+            .channel(`escala_updates_${linkId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'escala',
+                    filter: `id=eq.${linkId}`
+                },
+                (payload) => {
+                    console.log('⚡ Atualização em tempo real recebida:', payload);
+
+                    if (payload.new && payload.new.data) {
+                        try {
+                            const newData = payload.new.data;
+                            const newMes = payload.new.mes;
+                            const newAno = payload.new.ano;
+
+                            // Atualiza estados
+                            setMesAtual(newMes);
+                            setAnoAtual(newAno);
+
+                            const escalaConvertida = converterEstruturaDados(newData, newMes, newAno);
+                            setEscala(escalaConvertida);
+
+                            // Recalcula se é parcial
+                            const totalDiasNoMes = new Date(newAno, newMes, 0).getDate();
+                            const diasComDados = newData.dias.length;
+                            const isParcial = diasComDados < totalDiasNoMes * 0.5;
+                            const isParcialHeuristic = diasComDados < totalDiasNoMes * 0.5;
+                            setIsEscalaParcial(escalaConvertida.isParcial || isParcialHeuristic);
+
+                            // Exibe notificação visual
+                            setShowUpdateToast(true);
+                            setTimeout(() => setShowUpdateToast(false), 5000);
+                        } catch (err) {
+                            console.error('Erro ao processar atualização em tempo real:', err);
+                        }
+                    }
+                }
+            )
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log('✅ Inscrito no canal de atualizações com sucesso');
+                }
+            });
+
+        return () => {
+            console.log('🔌 Desconectando Realtime');
+            supabase?.removeChannel(channel);
+        };
+        // Dependências: linkId é o principal. converterEstruturaDados é estável.
+    }, [linkId]);
+
     useEffect(() => {
         if (!loading && diasMes.length > 0) {
             const diaAtualIndex = getDiaAtual();
@@ -375,6 +431,10 @@ const MobileEscala: React.FC = () => {
 
     return (
         <div className="mobile-escala-container">
+            <div className={`update-toast ${showUpdateToast ? 'visible' : ''}`}>
+                <span className="icon">🔄</span>
+                <span>Escala Atualizada em Tempo Real!</span>
+            </div>
             <div className="mobile-header" ref={headerRef}>
                 <div className="mobile-title">
                     <h1>📅 Escala</h1>
@@ -426,10 +486,15 @@ const MobileEscala: React.FC = () => {
                                             funcionariosDoDia.map(func => (
                                                 <div
                                                     key={func.id}
-                                                    className={`funcionario-item ${func.horario === 'FOLGA' ? 'folga' : ''} ${func.horario === 'ATESTADO' ? 'atestado' : ''} ${!func.horario ? 'no-horario' : ''} ${isFeriado(dia.data) ? 'feriado' : ''}`}
+                                                    className={`funcionario-item ${!func.horario ? 'no-horario' : ''}`}
                                                 >
-                                                    <div className={`horario ${func.horario === 'ATESTADO' ? 'atestado' : ''}`}>
-                                                        {func.horario ? (func.horario === 'ATESTADO' ? 'ATESTADO 🤒' : func.horario.replace(/(\d+H) AS (\d+H)/, '$1 - $2')) : '--:--'}
+                                                    <div className={`horario`}>
+                                                        {func.horario ? (
+                                                            func.horario === 'ATESTADO' ? <span className="status-badge atestado">ATESTADO 🤒</span> :
+                                                                func.horario === 'FERIADO' ? <span className="status-badge feriado">FERIADO 🎉</span> :
+                                                                    func.horario === 'FOLGA' ? <span className="status-badge folga">FOLGA</span> :
+                                                                        func.horario.replace(/(\d+H) AS (\d+H)/, '$1 - $2')
+                                                        ) : '--:--'}
                                                     </div>
                                                     <div className="nome">
                                                         {func.nome}

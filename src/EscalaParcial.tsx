@@ -1,27 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { EscalaData, Funcionario, DiaEscala } from './types';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { EscalaData, Funcionario } from './types';
 import { dadosIniciais } from './data';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-import * as XLSX from 'xlsx';
+import { saveAndReturnLink, copyToClipboard } from './utils/share';
+
 import './App.css';
+import {
+  diasSemana,
+  isFeriado,
+  isFimDeSemana
+} from './utils/dateUtils';
+import {
+  exportToPdf,
+  exportToExcel,
+  exportToGoogleSheets
+} from './utils/exportUtils';
 
 function EscalaParcial() {
   const [escala, setEscala] = useState<EscalaData>(() => {
     const savedEscala = localStorage.getItem('escala-horarios');
     let parsedEscala = savedEscala ? JSON.parse(savedEscala) : dadosIniciais;
-    // Garantir que sempre há funcionários
-    if (!parsedEscala.funcionarios || parsedEscala.funcionarios.length === 0) {
-      parsedEscala = {
-        ...parsedEscala,
-        funcionarios: dadosIniciais.funcionarios
-      };
-    }
     return parsedEscala;
   });
   const [anoAtual, setAnoAtual] = useState<number>(() => new Date().getFullYear());
   const [isEditing, setIsEditing] = useState(false);
   const [dataInicial, setDataInicial] = useState<string>('');
+  // Theme Management
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
+
   const [dataFinal, setDataFinal] = useState<string>('');
 
   const anos = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 2 + i);
@@ -31,7 +45,20 @@ function EscalaParcial() {
   };
 
   // Usar funcionários da escala diretamente
-  const funcionarios = escala.funcionarios || dadosIniciais.funcionarios;
+  const funcionarios = escala.funcionarios || [];
+
+  const STATUS = {
+    FOLGA: "FOLGA",
+    ATESTADO: "ATESTADO",
+    FERIADO: "FERIADO"
+  } as const;
+
+  const getStatusClass = (horario?: string) => {
+    if (horario === STATUS.FOLGA) return 'folga';
+    if (horario === STATUS.FERIADO) return 'feriado';
+    if (horario === STATUS.ATESTADO) return 'atestado';
+    return '';
+  };
 
   // Construir opções do seletor a partir do gerenciador (localStorage) + marcadores especiais
   const readFrequent = () => {
@@ -57,88 +84,58 @@ function EscalaParcial() {
   const frequent = readFrequent();
   const paused = readPaused();
   const buildUnique = (arr: string[]) => Array.from(new Set(arr));
-  const turnos = buildUnique(["", ...frequent.filter(f => !paused.includes(f)), "FOLGA", "ATESTADO", "FERIADO"]);
+  const turnos = buildUnique(["", ...frequent.filter(f => !paused.includes(f)), STATUS.FOLGA, STATUS.ATESTADO, STATUS.FERIADO]);
 
-  const diasSemana = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'];
+  // Date logic moved to utils/dateUtils.ts
 
-  // Lista de feriados brasileiros (dia/mês)
-  const feriados = [
-    "01/01", // Ano Novo
-    "21/04", // Tiradentes
-    "01/05", // Dia do Trabalho
-    "07/09", // Independência do Brasil
-    "12/10", // Nossa Senhora Aparecida
-    "02/11", // Finados
-    "15/11", // Proclamação da República
-    "25/12"  // Natal
-  ];
-
-  // Feriados móveis (Páscoa, Carnaval, etc.) - aproximação
-  const getFeriadosMoveis = (ano: number) => {
-    const feriadosMoveis = [];
-    
-    // Carnaval (47 dias antes da Páscoa)
-    const pascoa = new Date(ano, 2, 21); // Aproximação da Páscoa
-    const carnaval = new Date(pascoa.getTime() - (47 * 24 * 60 * 60 * 1000));
-    feriadosMoveis.push(`${carnaval.getDate().toString().padStart(2, '0')}/${(carnaval.getMonth() + 1).toString().padStart(2, '0')}`);
-    
-    // Sexta-feira Santa (2 dias antes da Páscoa)
-    const sextaSanta = new Date(pascoa.getTime() - (2 * 24 * 60 * 60 * 1000));
-    feriadosMoveis.push(`${sextaSanta.getDate().toString().padStart(2, '0')}/${(sextaSanta.getMonth() + 1).toString().padStart(2, '0')}`);
-    
-    // Páscoa
-    feriadosMoveis.push(`${pascoa.getDate().toString().padStart(2, '0')}/${(pascoa.getMonth() + 1).toString().padStart(2, '0')}`);
-    
-    // Corpus Christi (60 dias após a Páscoa)
-    const corpusChristi = new Date(pascoa.getTime() + (60 * 24 * 60 * 60 * 1000));
-    feriadosMoveis.push(`${corpusChristi.getDate().toString().padStart(2, '0')}/${(corpusChristi.getMonth() + 1).toString().padStart(2, '0')}`);
-    
-    return feriadosMoveis;
+  // Helper para converter DD/MM + Ano para YYYY-MM-DD (para o input date)
+  const formatToInputDate = (ddMm: string, year: number) => {
+    if (!ddMm) return '';
+    const [day, month] = ddMm.split('/').map(Number);
+    if (!day || !month) return '';
+    return `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
   };
 
-  const isFeriado = (data: string) => {
-    const diaMes = data.split(' ')[0]; // Pega apenas "DD/MM"
-    const todosFeriados = [...feriados, ...getFeriadosMoveis(anoAtual)];
-    return todosFeriados.includes(diaMes);
-  };
-
-  const isFimDeSemana = (diaSemana: string) => {
-    return diaSemana === 'DOM' || diaSemana === 'SAB';
+  // Helper para converter YYYY-MM-DD para DD/MM (para o estado)
+  const formatFromInputDate = (yyyyMmDd: string) => {
+    if (!yyyyMmDd) return '';
+    const [year, month, day] = yyyyMmDd.split('-');
+    return `${day}/${month}`;
   };
 
   const getDiasParciais = (dataInicial: string, dataFinal: string) => {
     if (!dataInicial || !dataFinal) return [];
-    
+
     const [diaInicial, mesInicial] = dataInicial.split('/').map(Number);
     const [diaFinal, mesFinal] = dataFinal.split('/').map(Number);
-    
+
     const diasArray = [];
     let dataAtual = new Date(anoAtual, mesInicial - 1, diaInicial);
     const dataFim = new Date(anoAtual, mesFinal - 1, diaFinal);
-    
+
     while (dataAtual <= dataFim) {
       const dia = dataAtual.getDate();
       const mes = dataAtual.getMonth() + 1;
       const diaSemana = diasSemana[dataAtual.getDay()];
       const data = `${dia.toString().padStart(2, '0')}/${mes.toString().padStart(2, '0')}`;
-      
+
       diasArray.push({
         dia,
         diaSemana,
         data,
         mes
       });
-      
+
       dataAtual.setDate(dataAtual.getDate() + 1);
     }
-    
+
     return diasArray;
   };
 
   const getHorarioFuncionario = (dia: number, funcionarioId: number) => {
     const diaEscala = escala.dias.find(d => d.dia === dia);
     if (!diaEscala) return "";
-    
+
     const horario = diaEscala.horarios.find(h => h.funcionarioId === funcionarioId);
     return horario ? horario.horario : "";
   };
@@ -169,8 +166,8 @@ function EscalaParcial() {
     const novoId = Math.max(...funcionarios.map(f => f.id)) + 1;
     const novoFuncionario: Funcionario = {
       id: novoId,
-      nome: `FUNCIONARIO ${novoId}`,
-      cor: `#${Math.floor(Math.random()*16777215).toString(16)}`
+      nome: "Novo Funcionário",
+      cor: `#${Math.floor(Math.random() * 16777215).toString(16)}`
     };
     setEscala(prevEscala => ({
       ...prevEscala,
@@ -195,116 +192,109 @@ function EscalaParcial() {
   const handleEditFuncionarioName = (funcionarioId: number) => {
     const funcionario = funcionarios.find(f => f.id === funcionarioId);
     if (!funcionario) return;
-    
+
     const novoNome = prompt('Digite o novo nome do funcionário:', funcionario.nome);
     if (novoNome && novoNome.trim()) {
       setEscala(prevEscala => ({
         ...prevEscala,
-        funcionarios: prevEscala.funcionarios.map(f => 
+        funcionarios: prevEscala.funcionarios.map(f =>
           f.id === funcionarioId ? { ...f, nome: novoNome.trim() } : f
         )
       }));
     }
   };
 
-  const handleExportPdfParcial = () => {
-    const input = document.getElementById('escala-parcial-container');
-    if (!input) return;
-
-    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 8; // Margem reduzida para melhor uso do espaço
-
-    html2canvas(input as HTMLElement, {
-      background: '#ffffff',
-      scale: 3,
-      useCORS: true
-    } as any).then((canvas: HTMLCanvasElement) => {
-      const imgData = canvas.toDataURL('image/png');
-
-      let imgWidth = pageWidth - margin * 2;
-      let imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      if (imgHeight > pageHeight - margin * 2) {
-        imgHeight = pageHeight - margin * 2;
-        imgWidth = (canvas.width * imgHeight) / canvas.height;
-      }
-
-      const xPosition = (pageWidth - imgWidth) / 2;
-      const yPosition = (pageHeight - imgHeight) / 2;
-
-      pdf.addImage(imgData, 'PNG', xPosition, yPosition, imgWidth, imgHeight);
-      pdf.save(`escala-parcial-${dataInicial}-${dataFinal}.pdf`);
-    });
+  const handleExportPdfParcial = async () => {
+    if (diasParciais.length === 0) return;
+    const dias = getDiasParciais(dataInicial, dataFinal);
+    await exportToPdf(
+      escala,
+      funcionarios,
+      dias,
+      0, // mes placeholder
+      anoAtual,
+      `Escala Parcial - ${dataInicial} a ${dataFinal}`,
+      `escala-parcial-${dataInicial}-${dataFinal}.pdf`
+    );
   };
 
-  const handleExportExcelParcial = () => {
-    const diasParciais = getDiasParciais(dataInicial, dataFinal);
-    
-    const workbook = XLSX.utils.book_new();
-    const dados = [];
-    
-    // Cabeçalho
-    const header = ['DATA', ...funcionarios.map(f => f.nome)];
-    dados.push(header);
-    
-    // Dados dos dias parciais
-    diasParciais.forEach(({ dia, diaSemana, data, mes }) => {
-      const row = [data + ' (' + diaSemana + ')'];
-      
-      funcionarios.forEach(func => {
-        const horario = getHorarioFuncionario(dia, func.id);
-        row.push(horario);
-      });
-      
-      dados.push(row);
-    });
-    
-    const worksheet = XLSX.utils.aoa_to_sheet(dados);
-    
-    const colWidths = [
-      { wch: 15 },
-      ...funcionarios.map(() => ({ wch: 12 }))
-    ];
-    worksheet['!cols'] = colWidths;
-    
-    // Remove caracteres inválidos do nome da planilha
-    const nomePlanilha = `Escala Parcial ${dataInicial} a ${dataFinal}`.replace(/[:\\/?*[\]]/g, '');
-    XLSX.utils.book_append_sheet(workbook, worksheet, nomePlanilha);
-    // Remove caracteres inválidos do nome do arquivo
-    const nomeArquivo = `escala-parcial-${dataInicial}-${dataFinal}.xlsx`.replace(/[:\\/?*[\]]/g, '');
-    XLSX.writeFile(workbook, nomeArquivo);
+  const handleExportGoogleSheetsParcial = async () => {
+    if (diasParciais.length === 0) return;
+    await exportToGoogleSheets(escala, funcionarios, diasParciais, anoAtual);
   };
 
-  const calcularEstatisticas = () => {
-    const diasParciais = getDiasParciais(dataInicial, dataFinal);
-    let totalFolgas = 0;
-    let funcionariosComFolga = 0;
+  const handleExportExcelParcial = async () => {
+    if (diasParciais.length === 0) return;
+    await exportToExcel(
+      escala,
+      funcionarios,
+      diasParciais,
+      0, // mes placeholder
+      anoAtual,
+      'escala-parcial',
+      `escala-parcial-${dataInicial}-${dataFinal}.xlsx`
+    );
+  };
 
-    diasParciais.forEach(({ dia }) => {
-      funcionarios.forEach(func => {
-        const horario = getHorarioFuncionario(dia, func.id);
-        if (horario === "FOLGA") {
-          totalFolgas++;
-        }
-      });
-    });
 
-    // Conta quantos funcionários têm pelo menos uma folga no período
-    funcionarios.forEach(func => {
-      const temFolga = diasParciais.some(({ dia }) => {
-        const horario = getHorarioFuncionario(dia, func.id);
-        return horario === "FOLGA";
-      });
-      if (temFolga) funcionariosComFolga++;
-    });
 
-    return {
-      totalDias: diasParciais.length,
-      totalFolgas,
-      funcionariosComFolga
+  const handleCopyLink = async () => {
+    if (diasParciais.length === 0) return;
+
+    // Filter days for the current partial view
+    const diasIds = diasParciais.map(d => d.dia);
+    const escalaFiltrada = {
+      ...escala,
+      dias: escala.dias.filter(d => diasIds.includes(d.dia)),
+      isParcial: true
     };
+
+    // Parse month from start string
+    const [, mes] = dataInicial.split('/').map(Number); // [dia, mes]
+
+    try {
+      const { link, savedOn } = await saveAndReturnLink(escalaFiltrada, mes, anoAtual);
+      const copied = await copyToClipboard(link);
+      if (copied) {
+        alert(`Link da escala parcial copiado! (${savedOn})`);
+      } else {
+        alert('Link gerado, mas não foi possível copiar automaticamente. Cole manualmente: ' + link);
+      }
+    } catch (err) {
+      console.error('Erro ao gerar link de compartilhamento:', err);
+      alert('Erro ao gerar link. Tente novamente.');
+    }
+  };
+
+  const handleShare = async () => {
+    if (diasParciais.length === 0) return;
+
+    // Filter days for the current partial view
+    const diasIds = diasParciais.map(d => d.dia);
+    const escalaFiltrada = {
+      ...escala,
+      dias: escala.dias.filter(d => diasIds.includes(d.dia)),
+      isParcial: true
+    };
+
+    // Parse month from start string
+    const [, mes] = dataInicial.split('/').map(Number); // [dia, mes]
+
+    try {
+      const { link } = await saveAndReturnLink(escalaFiltrada, mes, anoAtual);
+
+      const message = `📅 *ESCALA PARCIAL - ${dataInicial} a ${dataFinal}* (${anoAtual})\n\nOlá! Confira a escala de horários para este período:\n\n🔗 ${link}\n\n📋 *Funcionários:* ${funcionarios.map(f => f.nome).join(', ')}\n\nAcesse o link para ver os detalhes! 👆`;
+
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobile) {
+        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+      } else {
+        window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(message)}`, '_blank');
+      }
+    } catch (err) {
+      console.error('Erro ao gerar link de compartilhamento:', err);
+      alert('Erro ao gerar link. Tente novamente.');
+    }
   };
 
   // Salvar escala no localStorage sempre que ela mudar
@@ -312,44 +302,110 @@ function EscalaParcial() {
     localStorage.setItem('escala-horarios', JSON.stringify(escala));
   }, [escala]);
 
-  const stats = calcularEstatisticas();
-  const diasParciais = getDiasParciais(dataInicial, dataFinal);
+
+
+  // Atalhos de teclado
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Ignorar se estiver em inputs, exceto para ESC (cancelar/voltar)
+      const target = event.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA';
+
+      if (event.key === 'Escape') {
+        if (isEditing) {
+          setIsEditing(false); // Cancelar edição
+        } else {
+          window.location.href = '/'; // Voltar ao sistema
+        }
+      } else if (event.key === 'Enter') {
+        if (isInput) return; // Permitir comportamento natural em inputs (submit forms, new lines)
+
+        event.preventDefault(); // Evitar scroll ou behaviors indesejados
+        setIsEditing(prev => !prev); // Alternar modo edição
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isEditing]);
+
+  const diasParciais = useMemo(() => getDiasParciais(dataInicial, dataFinal), [dataInicial, dataFinal, anoAtual]);
 
   return (
     <div className="container">
-      <div className="header">
-        <h1>📅 Escala Parcial - Gestão de Períodos</h1>
-        <p>Sistema de Gestão de Escalas por Período Específico</p>
-        
-        <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center', margin: '20px 0' }}>
-          <div className="selector-group">
-            <label htmlFor="ano-select">Ano:</label>
-            <select 
-              id="ano-select"
-              value={anoAtual} 
-              onChange={(e) => handleAnoChange(Number(e.target.value))}
-              className="year-select"
+      {/* Floating Share Button */}
+      {diasParciais.length > 0 && (
+        <div className="floating-share">
+          <button
+            onClick={handleShare}
+            className="floating-whatsapp-button"
+            title="Compartilhar Escala Parcial no WhatsApp"
+          >
+            📱 WHATSAPP
+          </button>
+        </div>
+      )}
+
+      <div className="header-saas">
+        <div className="header-top-row">
+          <div className="header-branding">
+            <h1>📅 Escala Parcial</h1>
+            <p className="subtitle">Gestão de períodos específicos e customizados</p>
+          </div>
+
+          <div className="header-month-selector">
+            <div className="selector-group">
+              <label htmlFor="ano-select">ANO REFERÊNCIA</label>
+              <select
+                id="ano-select"
+                value={anoAtual}
+                onChange={(e) => handleAnoChange(Number(e.target.value))}
+                className="saas-select"
+              >
+                {anos.map(ano => (
+                  <option key={ano} value={ano}>
+                    {ano}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="header-utils">
+            <button
+              onClick={toggleTheme}
+              className="btn-icon"
+              title={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}
             >
-              {anos.map(ano => (
-                <option key={ano} value={ano}>
-                  {ano}
-                </option>
-              ))}
-            </select>
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
           </div>
         </div>
-        
-        <button onClick={() => setIsEditing(!isEditing)}>
-          {isEditing ? 'Salvar' : 'Editar'}
-        </button>
-        {isEditing && (
-          <button onClick={handleAddFuncionario} className="add-funcionario-button">
-            Adicionar Funcionário
-          </button>
-        )}
-        <button onClick={() => window.location.href = '/'} style={{ backgroundColor: '#6c757d' }}>
-          🏠 Voltar à Escala Principal
-        </button>
+
+        <div className="actions-toolbar">
+          <div className="toolbar-group main">
+            <button
+              onClick={() => setIsEditing(!isEditing)}
+              className={`btn-saas ${isEditing ? 'btn-save' : 'btn-edit'}`}
+            >
+              {isEditing ? '💾 SALVAR ALTERAÇÕES' : '📝 EDITAR'}
+            </button>
+
+            {isEditing && (
+              <button onClick={handleAddFuncionario} className="btn-saas btn-add">
+                ➕ NOVO FUNCIONÁRIO
+              </button>
+            )}
+          </div>
+
+          <div className="toolbar-group secondary">
+            <button onClick={() => window.location.href = '/'} className="btn-saas btn-ghost">
+              🏠 VOLTAR AO SISTEMA
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Seletor de Período */}
@@ -357,85 +413,71 @@ function EscalaParcial() {
         <h3>📅 Selecionar Período</h3>
         <div className="escala-parcial-controls">
           <div className="selector-group">
-            <label htmlFor="data-inicial">Data Inicial:</label>
+            <label htmlFor="data-inicial">DATA INICIAL</label>
             <input
               id="data-inicial"
-              type="text"
-              placeholder="DD/MM"
-              value={dataInicial}
-              onChange={(e) => setDataInicial(e.target.value)}
+              type="date"
+              value={formatToInputDate(dataInicial, anoAtual)}
+              onChange={(e) => setDataInicial(formatFromInputDate(e.target.value))}
               className="escala-parcial-input"
             />
           </div>
           <div className="selector-group">
-            <label htmlFor="data-final">Data Final:</label>
+            <label htmlFor="data-final">DATA FINAL</label>
             <input
               id="data-final"
-              type="text"
-              placeholder="DD/MM"
-              value={dataFinal}
-              onChange={(e) => setDataFinal(e.target.value)}
+              type="date"
+              value={formatToInputDate(dataFinal, anoAtual)}
+              onChange={(e) => setDataFinal(formatFromInputDate(e.target.value))}
               className="escala-parcial-input"
             />
           </div>
+
           {diasParciais.length > 0 && (
-            <>
-              <button 
+            <div className="toolbar-group" style={{ marginLeft: 16 }}>
+              <button
                 onClick={handleExportPdfParcial}
-                className="escala-parcial-button pdf"
+                className="btn-saas btn-ghost"
+                title="Exportar para PDF"
               >
-                Exportar PDF
+                📄 PDF
               </button>
-              <button 
+              <button
                 onClick={handleExportExcelParcial}
-                className="escala-parcial-button excel"
+                className="btn-saas btn-ghost"
+                title="Exportar para Excel"
               >
-                Exportar Excel
+                📊 EXCEL
               </button>
-            </>
+              <button
+                onClick={handleExportGoogleSheetsParcial}
+                className="btn-saas btn-ghost"
+                title="Abrir no Google Sheets"
+              >
+                📑 SHEETS
+              </button>
+              <button
+                onClick={handleCopyLink}
+                className="btn-saas btn-ghost"
+                title="Copiar Link"
+              >
+                🔗 LINK
+              </button>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Estatísticas */}
-      {diasParciais.length > 0 && (
-        <div className="stats">
-          <div className="stat-card">
-            <div className="stat-number">{stats.totalDias}</div>
-            <div className="stat-label">Dias no Período</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-number">{stats.totalFolgas}</div>
-            <div className="stat-label">Total de Folgas</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-number">{funcionarios.length}</div>
-            <div className="stat-label">Funcionários</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-number">{stats.funcionariosComFolga}</div>
-            <div className="stat-label">Dias com Folga</div>
-          </div>
-        </div>
-      )}
+
 
       {/* Escala Parcial */}
       {diasParciais.length > 0 && (
-        <div className="escala-table">
+        <div className={`escala-table ${isEditing ? 'editing-mode' : ''}`}>
           <div className="table-header">
             <h2>Escala Parcial - {dataInicial} a {dataFinal}</h2>
-            {isEditing && (
-              <p style={{ 
-                color: '#e67e22', 
-                fontSize: '0.9em', 
-                margin: '5px 0 0 0',
-                fontStyle: 'italic'
-              }}>
-                ✏️ Modo de edição ativo - Você pode alterar os horários diretamente
-              </p>
-            )}
+
           </div>
-          
+
           <div className="table-container" id="escala-parcial-container">
             <table>
               <thead>
@@ -443,18 +485,20 @@ function EscalaParcial() {
                   <th className="data-cell">DATA</th>
                   {funcionarios.map(func => (
                     <th key={func.id} className="funcionario-header">
-                      {func.nome}
+                      <div className="funcionario-nome-container">
+                        {func.nome}
+                      </div>
                       {isEditing && (
                         <div className="funcionario-actions">
-                          <button 
-                            onClick={() => handleEditFuncionarioName(func.id)} 
+                          <button
+                            onClick={() => handleEditFuncionarioName(func.id)}
                             className="edit-funcionario-button"
                             title="Editar nome"
                           >
                             ✏️
                           </button>
-                          <button 
-                            onClick={() => handleRemoveFuncionario(func.id)} 
+                          <button
+                            onClick={() => handleRemoveFuncionario(func.id)}
                             className="remove-funcionario-button"
                             title="Remover funcionário"
                           >
@@ -472,7 +516,7 @@ function EscalaParcial() {
                     <td className="data-cell">
                       <div className="date-content">
                         {data} ({diaSemana})
-                        {isFeriado(data) && (
+                        {isFeriado(data, anoAtual) && (
                           <span className="holiday-icon" title="Feriado Nacional">
                             🎉
                           </span>
@@ -482,23 +526,31 @@ function EscalaParcial() {
                     {funcionarios.map(func => {
                       const horario = getHorarioFuncionario(dia, func.id);
                       return (
-                        <td 
-                          key={func.id} 
-                          className={`horario-cell ${horario === "FOLGA" ? 'folga' : ''} ${horario === "FERIADO" ? 'feriado' : ''}`}
+                        <td
+                          key={func.id}
+                          className={`horario-cell ${getStatusClass(horario)}`}
                         >
                           {isEditing ? (
-                            <select 
-                              value={horario || ""} 
+                            <select
+                              value={horario || ""}
                               onChange={(e) => handleHorarioChange(dia, func.id, e.target.value)}
                             >
                               {turnos.map(t => (
                                 <option key={t} value={t}>
-                                  {t || "Selecione..."}
+                                  {t === STATUS.FERIADO ? 'FERIADO 🎉' : (t || "Selecione...")}
                                 </option>
                               ))}
                             </select>
                           ) : (
-                            horario || ""
+                            horario === STATUS.ATESTADO ? (
+                              <span className="status-badge atestado">ATESTADO 🤒</span>
+                            ) : horario === STATUS.FERIADO ? (
+                              <span className="status-badge feriado">FERIADO 🎉</span>
+                            ) : horario === STATUS.FOLGA ? (
+                              <span className="status-badge folga">FOLGA</span>
+                            ) : (
+                              horario || ""
+                            )
                           )}
                         </td>
                       );
@@ -513,9 +565,9 @@ function EscalaParcial() {
 
       {/* Mensagem quando não há período selecionado */}
       {diasParciais.length === 0 && (
-        <div style={{ 
-          textAlign: 'center', 
-          padding: '50px', 
+        <div style={{
+          textAlign: 'center',
+          padding: '50px',
           color: '#6c757d',
           fontSize: '1.1em'
         }}>

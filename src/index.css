@@ -86,12 +86,10 @@ th {
 }
 
 tr:nth-child(even) {
-    background-color: #f8fafc;
+    background-color: var(--table-stripe);
 }
 
-tr:hover {
-    background-color: #f1f5f9;
-}
+
 
 .folga {
     background-color: #fef3c7 !important;
@@ -108,7 +106,7 @@ tr:hover {
 }
 
 .funcionario-header {
-    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+    background: linear-gradient(135deg, #e2e9f4 0%, #d7e2ee 100%);
     color: white;
     font-weight: 600;
     padding: 16px 12px;
@@ -128,8 +126,7 @@ tr:hover {
     transition: all 0.2s ease;
 }
 
-.horario-cell:hover {
-    background-color: #e8f4f8;
+.editing-mode .horario-cell:hover {
     transform: scale(1.02);
 }
 

@@ -22,25 +22,7 @@ export const limparDadosOrfaos = (escala: EscalaData): EscalaData => {
   };
 };
 
-// Função para limitar o histórico
-export const limitarHistorico = (historico: EscalaData[], maxSize: number = MAX_HISTORY_SIZE): EscalaData[] => {
-  if (historico.length <= maxSize) return historico;
 
-  // Mantém apenas os últimos 'maxSize' itens
-  return historico.slice(-maxSize);
-};
-
-// Função para limpar localStorage antigo
-export const limparLocalStorageAntigo = () => {
-  const keys = Object.keys(localStorage);
-  const escalaKeys = keys.filter(key => key.startsWith('escala-'));
-
-  // Se há mais de 5 chaves relacionadas à escala, limpa as mais antigas
-  if (escalaKeys.length > 5) {
-    const keysToRemove = escalaKeys.slice(0, escalaKeys.length - 5);
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-  }
-};
 
 // Função para compactar dados
 export const compactarEscala = (escala: EscalaData): EscalaData => {

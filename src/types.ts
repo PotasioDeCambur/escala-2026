@@ -18,4 +18,5 @@ export interface EscalaData {
     funcionarios: Funcionario[];
     dias: DiaEscala[];
     vencedorId?: number;
+    isParcial?: boolean;
 }
