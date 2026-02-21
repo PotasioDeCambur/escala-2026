@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { EscalaData, Funcionario } from './types';
 import { dadosIniciais } from './data';
 import {
@@ -7,8 +7,10 @@ import {
   verificarTamanhoLocalStorage
 } from './utils/optimization';
 
-import { saveEscala } from './supabaseClient';
+import { saveEscala, isSupabaseConfigured } from './supabaseClient';
 import { saveAndReturnLink, copyToClipboard } from './utils/share';
+import { useAuth } from './contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import './App.css';
 import {
   diasSemana,
@@ -36,6 +38,8 @@ import {
 } from './utils/historyUtils';
 
 function App() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [escala, setEscala] = useState<EscalaData>(() => {
     const savedEscala = localStorage.getItem('escala-horarios');
 
@@ -87,6 +91,11 @@ function App() {
   const [showAutoFillModal, setShowAutoFillModal] = useState(false);
 
   const [historyList, setHistoryList] = useState<HistoryMetadata[]>([]);
+  const [cloudId, setCloudId] = useState<string | null>(() => localStorage.getItem('escala-cloud-id'));
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const autoSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Theme Management
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
@@ -138,6 +147,67 @@ function App() {
     // Verifica e faz limpeza automática se necessário
     limpezaAutomatica();
   }, [escala]);
+
+  // Persistir cloudId
+  useEffect(() => {
+    if (cloudId) {
+      localStorage.setItem('escala-cloud-id', cloudId);
+    }
+  }, [cloudId]);
+
+  // Função para sincronizar com a nuvem (Supabase)
+  const handleSyncToCloud = async (silent = false) => {
+    if (!silent) setIsSyncing(true);
+    setSyncError(false);
+    try {
+      // Se já temos um ID, tentamos atualizar. Se não, cria novo.
+      // Passamos o cloudId existente (se houver) para o saveAndReturnLink
+      const result = await saveAndReturnLink(escala, mesAtual, anoAtual, cloudId || undefined);
+
+      if (result.success === false) {
+        setSyncError(true);
+        if (!silent) console.warn('⚠️ Erro ao salvar (success: false)');
+      }
+
+      if (result.id && !result.id.startsWith('local-')) {
+        setCloudId(result.id);
+        setLastSyncTime(new Date().toLocaleTimeString());
+        if (!silent) console.log('☁️ Sincronizado com sucesso:', result.id);
+        return result.link;
+      } else {
+        // Se retornou local, é porque falhou ou não tem credenciais
+        if (!silent) console.warn('⚠️ Sincronização falhou ou em modo local');
+        return result.link; // Retorna o link fallback
+      }
+    } catch (error) {
+      console.error('Erro na sincronização:', error);
+      setSyncError(true);
+      return window.location.href; // Fallback
+    } finally {
+      if (!silent) setIsSyncing(false);
+    }
+  };
+
+  // Auto-sync ao salvar edições e em mudanças fora do modo de edição
+  useEffect(() => {
+    if (isEditing) return;
+    if (!cloudId) return;
+    if (!isSupabaseConfigured()) return;
+
+    if (autoSyncTimeoutRef.current) {
+      clearTimeout(autoSyncTimeoutRef.current);
+    }
+
+    autoSyncTimeoutRef.current = setTimeout(() => {
+      handleSyncToCloud(true);
+    }, 800);
+
+    return () => {
+      if (autoSyncTimeoutRef.current) {
+        clearTimeout(autoSyncTimeoutRef.current);
+      }
+    };
+  }, [escala, isEditing, cloudId]);
 
   // Salvar estado inicial quando entrar no modo de edição (sem histórico)
   useEffect(() => {
@@ -677,8 +747,10 @@ function App() {
       {/* Botão flutuante do WhatsApp */}
       <div className="floating-share">
         <button
-          onClick={() => {
-            const message = `📅 *ESCALA DE HORÁRIOS - ${getNomeMes(mesAtual).toUpperCase()} ${anoAtual}*\n\nOlá! Aqui está o link da escala de horários:\n\n🔗 ${window.location.href}\n\n📋 *Funcionários:* ${funcionarios.map(f => f.nome).join(', ')}\n📅 *Período:* ${getNomeMes(mesAtual)} ${anoAtual}\n\nAcesse o link para ver seus horários e folgas! 👆`;
+          onClick={async () => {
+            // Sincroniza antes de compartilhar para garantir link atualizado
+            const link = await handleSyncToCloud();
+            const message = `📅 *ESCALA DE HORÁRIOS - ${getNomeMes(mesAtual).toUpperCase()} ${anoAtual}*\n\nOlá! Aqui está o link da escala de horários:\n\n🔗 ${link}\n\n📋 *Funcionários:* ${funcionarios.map(f => f.nome).join(', ')}\n📅 *Período:* ${getNomeMes(mesAtual)} ${anoAtual}\n\nAcesse o link para ver seus horários e folgas! 👆`;
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
             if (isMobile) {
               window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
@@ -687,8 +759,9 @@ function App() {
             }
           }}
           className="floating-whatsapp-button"
+          disabled={isSyncing}
         >
-          📱 WHATSAPP
+          {isSyncing ? '⏳ SINCRONIZANDO...' : '📱 WHATSAPP'}
         </button>
       </div>
 
@@ -697,6 +770,7 @@ function App() {
           <div className="header-branding">
             <h1>📅 ESCALA DE HORÁRIOS</h1>
             <p className="subtitle">Gerencie sua escala com facilidade e eficiência</p>
+
           </div>
 
           <div className="header-month-selector">
@@ -732,6 +806,18 @@ function App() {
           </div>
 
           <div className="header-utils">
+            {/* Connection Status Indicator */}
+            {!isSupabaseConfigured() ? (
+              <div className="connection-status offline" title="Sistema desconectado da nuvem">
+                <span className="status-dot"></span>
+              </div>
+            ) : (
+              <div className={`connection-status ${syncError ? 'offline' : (isSyncing ? 'syncing' : 'online')}`}
+                title={syncError ? "Erro ao salvar" : (isSyncing ? "Sincronizando..." : "Sistema conectado e salvo")}>
+                <span className="status-dot"></span>
+              </div>
+            )}
+
             <button onClick={toggleTheme} className="btn-icon" title={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}>
               {theme === 'dark' ? '☀️' : '🌙'}
             </button>
@@ -741,6 +827,16 @@ function App() {
             <button onClick={() => setShowConfigModal(true)} className="btn-saas btn-ghost" title="Gerenciar Horários">
               🕒 HORÁRIOS
             </button>
+            {user?.email === 'armandoo.linares@gmail.com' && (
+              <button
+                onClick={() => navigate('/admin')}
+                className="btn-saas btn-ghost"
+                title="Painel Admin Secreto"
+                style={{ color: '#28a745', borderColor: '#28a745' }}
+              >
+                ⚙️ ADMIN
+              </button>
+            )}
             <button onClick={handleDestaque} className="btn-icon" title="Destaque">
               👑
             </button>
@@ -808,7 +904,16 @@ function App() {
               };
 
               try {
-                const { link, savedOn } = await saveAndReturnLink(escalaData, mesAtual, anoAtual);
+                const { link, savedOn, id } = await saveAndReturnLink(
+                  escalaData,
+                  mesAtual,
+                  anoAtual,
+                  cloudId || undefined
+                );
+                if (id && !id.startsWith('local-')) {
+                  setCloudId(id);
+                  setLastSyncTime(new Date().toLocaleTimeString());
+                }
                 const copied = await copyToClipboard(link);
                 if (copied) {
                   alert(`Link da escala mobile copiado! (${savedOn})`);

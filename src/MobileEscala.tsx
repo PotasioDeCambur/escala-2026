@@ -33,8 +33,71 @@ const MobileEscala: React.FC = () => {
     const [isEscalaParcial, setIsEscalaParcial] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLDivElement>(null);
-    const [headerOffset, setHeaderOffset] = useState(140);
-    const [showUpdateToast, setShowUpdateToast] = useState(false);
+    const [headerOffset, setHeaderOffset] = useState(90);
+    const [flashUpdate, setFlashUpdate] = useState(false);
+    const [showUpdateModal, setShowUpdateModal] = useState(false);
+
+    const [lastUpdate, setLastUpdate] = useState<string>('');
+
+    // Obtém o ID da escala da URL (Helper)
+    // Definimos isso aqui em cima para o useCallback poder usar
+    const getLinkId = () => {
+        const path = window.location.pathname;
+        let match = path.match(/\/mobile\/([a-zA-Z0-9-]+)/);
+        if (match) return match[1];
+        match = path.match(/\/escala\/([a-zA-Z0-9-]+)/);
+        return match ? match[1] : null;
+    };
+
+    // Inicialização direta do linkId
+    const linkId = useMemo(() => getLinkId(), []); // Memoriza para evitar re-calculos
+
+
+
+
+
+    const checkForUpdates = useCallback(async () => {
+        if (!linkId || !getEscalaById) return;
+
+        try {
+            const row: any = await getEscalaById(linkId);
+            if (row && row.updated_at) {
+                // Se a data de atualização for diferente da última que temos
+                if (row.updated_at !== lastUpdate) {
+                    console.log('🔄 Nova versão detectada via Polling/Manual:', row.updated_at);
+
+                    setMesAtual(row.mes);
+                    setAnoAtual(row.ano);
+                    setLastUpdate(row.updated_at);
+
+                    const escalaConvertida = converterEstruturaDados(row.data, row.mes, row.ano);
+                    setEscala(escalaConvertida);
+
+                    const totalDiasNoMes = new Date(row.ano, row.mes, 0).getDate();
+                    const diasComDados = row.data.dias.length;
+                    const isParcial = diasComDados < totalDiasNoMes * 0.5;
+                    const isParcialHeuristic = diasComDados < totalDiasNoMes * 0.5;
+                    setIsEscalaParcial(escalaConvertida.isParcial || isParcialHeuristic);
+
+                    // Notificação visual (Toast e Flash)
+                    setFlashUpdate(true);
+                    setShowUpdateModal(true);
+                    // Modal não some sozinho, espera o usuário clicar
+                    setTimeout(() => {
+                        setFlashUpdate(false);
+                    }, 4000);
+                }
+            }
+        } catch (error) {
+            console.error('Erro ao verificar atualizações:', error);
+        }
+    }, [linkId, lastUpdate]);
+
+    // Polling de segurança: verifica a cada 10 segundos se há novidades
+    useEffect(() => {
+        const interval = setInterval(checkForUpdates, 10000);
+        return () => clearInterval(interval);
+    }, [checkForUpdates]);
 
     const updateHeaderOffset = useCallback(() => {
         if (!headerRef.current) {
@@ -43,7 +106,7 @@ const MobileEscala: React.FC = () => {
 
         const measuredHeight = headerRef.current.getBoundingClientRect().height;
         const spacing = 16; // espaço extra para garantir respiro visual abaixo do header
-        setHeaderOffset(Math.max(measuredHeight + spacing, 140));
+        setHeaderOffset(Math.max(measuredHeight + spacing, 90));
     }, []);
 
     useLayoutEffect(() => {
@@ -66,17 +129,6 @@ const MobileEscala: React.FC = () => {
         return () => observer.disconnect();
     }, [updateHeaderOffset]);
 
-    // Obtém o ID da escala da URL
-    const getLinkId = () => {
-        const path = window.location.pathname;
-        // Tenta primeiro o padrão /mobile/:linkId
-        let match = path.match(/\/mobile\/([a-zA-Z0-9-]+)/);
-        if (match) return match[1];
-        // Tenta também o padrão /escala/:linkId (para compatibilidade)
-        match = path.match(/\/escala\/([a-zA-Z0-9-]+)/);
-        return match ? match[1] : null;
-    };
-
     // Obtém os dados da escala da query string
     const getSharedData = () => {
         const params = new URLSearchParams(window.location.search);
@@ -93,7 +145,6 @@ const MobileEscala: React.FC = () => {
         return null;
     };
 
-    const linkId = getLinkId();
     const sharedDataFromUrl = getSharedData();
 
 
@@ -282,6 +333,11 @@ const MobileEscala: React.FC = () => {
                     if (row && row.data) {
                         setMesAtual(row.mes);
                         setAnoAtual(row.ano);
+
+                        if (row.updated_at) {
+                            setLastUpdate(row.updated_at);
+                        }
+
                         const escalaConvertida = converterEstruturaDados(row.data, row.mes, row.ano);
                         setEscala(escalaConvertida);
 
@@ -354,35 +410,41 @@ const MobileEscala: React.FC = () => {
                     filter: `id=eq.${linkId}`
                 },
                 (payload) => {
-                    console.log('⚡ Atualização em tempo real recebida:', payload);
+                    console.log('⚡ Atualização em tempo real recebida. Buscando dados frescos...');
 
-                    if (payload.new && payload.new.data) {
-                        try {
-                            const newData = payload.new.data;
-                            const newMes = payload.new.mes;
-                            const newAno = payload.new.ano;
-
-                            // Atualiza estados
-                            setMesAtual(newMes);
-                            setAnoAtual(newAno);
-
-                            const escalaConvertida = converterEstruturaDados(newData, newMes, newAno);
-                            setEscala(escalaConvertida);
-
-                            // Recalcula se é parcial
-                            const totalDiasNoMes = new Date(newAno, newMes, 0).getDate();
-                            const diasComDados = newData.dias.length;
-                            const isParcial = diasComDados < totalDiasNoMes * 0.5;
-                            const isParcialHeuristic = diasComDados < totalDiasNoMes * 0.5;
-                            setIsEscalaParcial(escalaConvertida.isParcial || isParcialHeuristic);
-
-                            // Exibe notificação visual
-                            setShowUpdateToast(true);
-                            setTimeout(() => setShowUpdateToast(false), 5000);
-                        } catch (err) {
-                            console.error('Erro ao processar atualização em tempo real:', err);
+                    // Em vez de confiar no payload (que pode vir incompleto se for muito grande),
+                    // buscamos os dados atualizados diretamente do banco.
+                    getEscalaById(linkId).then(({ data: freshData, error }) => {
+                        if (error || !freshData) {
+                            console.error('Erro ao buscar dados atualizados após notificação:', error);
+                            return;
                         }
-                    }
+
+                        const newData = freshData.data;
+                        const newMes = freshData.mes;
+                        const newAno = freshData.ano;
+
+                        // Atualiza estados
+                        setMesAtual(newMes);
+                        setAnoAtual(newAno);
+
+                        const escalaConvertida = converterEstruturaDados(newData, newMes, newAno);
+                        setEscala(escalaConvertida);
+
+                        // Recalcula se é parcial
+                        const totalDiasNoMes = new Date(newAno, newMes, 0).getDate();
+                        const diasComDados = newData.dias.length;
+                        const isParcial = diasComDados < totalDiasNoMes * 0.5;
+                        const isParcialHeuristic = diasComDados < totalDiasNoMes * 0.5;
+                        setIsEscalaParcial(escalaConvertida.isParcial || isParcialHeuristic);
+
+                        // Flash discreto para indicar atualização
+                        setFlashUpdate(true);
+                        setShowUpdateModal(true);
+                        setTimeout(() => {
+                            setFlashUpdate(false);
+                        }, 4000);
+                    });
                 }
             )
             .subscribe((status) => {
@@ -431,14 +493,12 @@ const MobileEscala: React.FC = () => {
 
     return (
         <div className="mobile-escala-container">
-            <div className={`update-toast ${showUpdateToast ? 'visible' : ''}`}>
-                <span className="icon">🔄</span>
-                <span>Escala Atualizada em Tempo Real!</span>
-            </div>
             <div className="mobile-header" ref={headerRef}>
+
                 <div className="mobile-title">
                     <h1>📅 Escala</h1>
                     <p>{getNomeMes(mesAtual)} {anoAtual}</p>
+
                     {isEscalaParcial && (
                         <p className="escala-parcial-info">
                             📊 Período específico - {escala.dias.length} dias
@@ -454,9 +514,38 @@ const MobileEscala: React.FC = () => {
                         ← Sistema
                     </button>
                 )}
+
+
             </div>
 
-            <div className="main-content" style={{ paddingTop: `${headerOffset}px` }}>
+            {sharedDataFromUrl && !linkId && (
+                <div className="static-link-warning" style={{ marginTop: headerOffset }}>
+                    ⚠️ VISUALIZAÇÃO ESTÁTICA: Este link não atualiza automaticamente.
+                </div>
+            )}
+
+            {/* Modal de Atualização Importante */}
+            {showUpdateModal && (
+                <div className="update-modal-overlay">
+                    <div className="update-modal-content">
+                        <div className="update-modal-icon">🔄</div>
+                        <h3 className="update-modal-title">ATUALIZAÇÃO RECEBIDA</h3>
+                        <p className="update-modal-message">
+                            A escala acabou de ser alterada pelo gerente.
+                            <br />
+                            Confira as novas informações.
+                        </p>
+                        <button
+                            className="update-modal-btn"
+                            onClick={() => setShowUpdateModal(false)}
+                        >
+                            ENTENDIDO
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            <div className={`main-content ${flashUpdate ? 'flash-update' : ''}`} style={{ paddingTop: sharedDataFromUrl && !linkId ? '0' : `${headerOffset}px` }}>
                 {error && !loading && (
                     <div className="error-banner">
                         <p>⚠️ {error}</p>

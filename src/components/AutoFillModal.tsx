@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { EscalaData, Funcionario } from '../types';
 import { getCalendarGrid, diasSemana } from '../utils/dateUtils';
