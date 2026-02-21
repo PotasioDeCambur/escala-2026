@@ -3,116 +3,89 @@ import { useAuth } from './contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 const PLANS = [
-    {
-        type: 'basic',
-        name: 'Starter',
-        price: 29,
-        description: 'Para pequenas equipes e comércios locais.',
-        features: [
-            'Até 10 funcionários',
-            'Escala mensal automática',
-            'Exportação para PDF/Excel',
-            'Link público para funcionários',
-            'Suporte por email'
-        ],
-        link: '#LINK_MERCADO_PAGO_BASIC' // Substituir pelo link real
-    },
-    {
-        type: 'pro',
-        name: 'Business',
-        price: 49,
-        popular: true,
-        description: 'Para empresas em crescimento que precisam de organização total.',
-        features: [
-            'Funcionários ilimitados',
-            'Regras avançadas de horário',
-            'Suporte prioritário via WhatsApp',
-            'Backup automático na nuvem',
-            'Gestão de folgas e atestados'
-        ],
-        link: '#LINK_MERCADO_PAGO_PRO' // Substituir pelo link real
-    },
-    {
-        type: 'enterprise',
-        name: 'Enterprise',
-        price: 99,
-        description: 'Para redes de lojas e grandes operações com múltiplos gerentes.',
-        features: [
-            'Tudo do plano Business',
-            'Múltiplos administradores (em breve)',
-            'Relatórios avançados de horas',
-            'Integração com folha de ponto',
-            'Treinamento de uso'
-        ],
-        link: '#LINK_MERCADO_PAGO_ENTERPRISE' // Substituir pelo link real
-    }
+  {
+    type: 'pro',
+    name: 'Escala Pro',
+    price: '49,90',
+    popular: true,
+    description: 'Tudo o que sua empresa precisa para organizar e gerenciar escalas de forma inteligente.',
+    features: [
+      'Funcionários e escalas ilimitadas',
+      'Backup automático em nuvem',
+      'Regras avançadas e validações de horário',
+      'Compartilhamento fácil via WhatsApp/Link',
+      'Assistente mágico de preenchimento (IA)',
+      'Suporte prioritário via WhatsApp'
+    ],
+    link: 'https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=737e48b353694e2ba4baf461006cfa72'
+  }
 ];
 
 export default function Pricing() {
-    const { user, hasActiveSubscription, signOut } = useAuth();
-    const navigate = useNavigate();
-    const [loading, setLoading] = useState(false);
+  const { user, hasActiveSubscription, signOut } = useAuth();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
-    const handleSubscribe = (link: string) => {
-        if (!user) {
-            alert('Você precisa criar uma conta primeiro!');
-            navigate('/login');
-            return;
-        }
-        setLoading(true);
-        // Redireciona para o checkout do Mercado Pago
-        window.location.href = link;
-    };
-
-    const handleLogout = async () => {
-        await signOut();
-        navigate('/login');
-    };
-
+  const handleSubscribe = (link: string) => {
     if (!user) {
-        navigate('/login');
-        return null;
+      alert('Você precisa criar uma conta primeiro!');
+      navigate('/login');
+      return;
     }
+    setLoading(true);
+    // Redireciona para o checkout do Mercado Pago
+    window.location.href = link;
+  };
 
-    return (
-        <div className="pricing-container">
-            <header className="pricing-header">
-                <h1>Escolha o plano ideal para sua empresa</h1>
-                <p>Comece com 7 dias grátis. Cancele quando quiser.</p>
-                <div className="user-info">
-                    <span>Logado como: {user.email}</span>
-                    <button onClick={handleLogout} className="logout-btn">Sair</button>
-                </div>
-            </header>
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/login');
+  };
 
-            <div className="plans-grid">
-                {PLANS.map((plan) => (
-                    <div key={plan.type} className={`plan-card ${plan.popular ? 'popular' : ''}`}>
-                        {plan.popular && <div className="badge">MAIS POPULAR</div>}
-                        <h3>{plan.name}</h3>
-                        <div className="price">
-                            R$ {plan.price}<span>/mês</span>
-                        </div>
-                        <p className="description">{plan.description}</p>
+  if (!user) {
+    navigate('/login');
+    return null;
+  }
 
-                        <ul className="features">
-                            {plan.features.map((feature, i) => (
-                                <li key={i}>✅ {feature}</li>
-                            ))}
-                        </ul>
+  return (
+    <div className="pricing-container">
+      <header className="pricing-header">
+        <h1>Escolha o plano ideal para sua empresa</h1>
+        <p>Comece com 7 dias grátis. Cancele quando quiser.</p>
+        <div className="user-info">
+          <span>Logado como: {user.email}</span>
+          <button onClick={handleLogout} className="logout-btn">Sair</button>
+        </div>
+      </header>
 
-                        <button
-                            className={`subscribe-btn ${plan.popular ? 'primary' : 'secondary'}`}
-                            onClick={() => handleSubscribe(plan.link)}
-                            disabled={loading || hasActiveSubscription}
-                        >
-                            {hasActiveSubscription ? 'Plano Ativo' : 'Começar Agora'}
-                        </button>
-                    </div>
-                ))}
+      <div className="plans-grid">
+        {PLANS.map((plan) => (
+          <div key={plan.type} className={`plan-card ${plan.popular ? 'popular' : ''}`}>
+            {plan.popular && <div className="badge">MAIS POPULAR</div>}
+            <h3>{plan.name}</h3>
+            <div className="price">
+              R$ {plan.price}<span>/mês</span>
             </div>
+            <p className="description">{plan.description}</p>
 
-            <style>{`
+            <ul className="features">
+              {plan.features.map((feature, i) => (
+                <li key={i}>✅ {feature}</li>
+              ))}
+            </ul>
+
+            <button
+              className={`subscribe-btn ${plan.popular ? 'primary' : 'secondary'}`}
+              onClick={() => handleSubscribe(plan.link)}
+              disabled={loading || hasActiveSubscription}
+            >
+              {hasActiveSubscription ? 'Plano Ativo' : 'Começar Agora'}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <style>{`
         .pricing-container {
           font-family: 'Inter', sans-serif;
           background: #f8f9fa;
@@ -250,6 +223,6 @@ export default function Pricing() {
            }
         }
       `}</style>
-        </div>
-    );
+    </div>
+  );
 }
