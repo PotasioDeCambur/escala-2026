@@ -34,7 +34,12 @@ export default function Pricing() {
     }
     setLoading(true);
     // Redireciona para o checkout do Mercado Pago
-    window.location.href = link;
+    // Passamos o email do usuario junto ao link para sabermos quem pagou dps
+    const checkoutUrl = new URL(link);
+    if (user.email) {
+      checkoutUrl.searchParams.set('payer_email', user.email);
+    }
+    window.location.href = checkoutUrl.toString();
   };
 
   const handleLogout = async () => {
