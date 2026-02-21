@@ -63,12 +63,14 @@ export default function AdminDashboard() {
         alert(`Lead aprovado com sucesso! Agora envie o convite para ${leadEmail}.`);
 
         // Recarregar lista
-        fetchLeads();
+        await fetchLeads();
+
+        alert(`Lead aprovado com sucesso! Agora envie o convite para ${leadEmail}.`);
 
         // Abrir cliente de email
         const subject = encodeURIComponent("Seu acesso ao Escala foi aprovado! 🚀");
-        const body = encodeURIComponent(`Olá!\n\nSua solicitação para testar o Escala foi aprovada.\n\nAcesse agora e faça login com seu Google: ${window.location.origin}/login\n\nQualquer dúvida, estou à disposição!\n\nAtt,\nEquipe Escala`);
-        window.open(`mailto:${leadEmail}?subject=${subject}&body=${body}`);
+        const body = encodeURIComponent(`Olá!\n\nSua solicitação para testar o Escala foi aprovada.\n\nAcesse agora e faça login no nosso site:\n${window.location.origin}\n\nQualquer dúvida, estou à disposição!\n\nAtt,\nEquipe Escala`);
+        window.open(`mailto:${leadEmail}?subject=${subject}&body=${body}`, '_blank');
     };
 
     if (loading) return <div>Carregando painel administrativo...</div>;
