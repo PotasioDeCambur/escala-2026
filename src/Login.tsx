@@ -58,8 +58,7 @@ export default function Login() {
     setLoading(true);
     try {
       await signUpWithEmail(formData.email, formData.password);
-      alert('Conta criada com sucesso! Você já pode acessar (se a verificação por email não estiver obrigatória) ou checar seu e-mail.');
-      // signInWithEmail tentará logar automático ou dependendo das configs de confirmação
+      // Após criação, tentar fazer o login do usuário silenciosamente
       try {
         await signInWithEmail(formData.email, formData.password);
       } catch (err) {

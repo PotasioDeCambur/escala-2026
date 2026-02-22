@@ -24,7 +24,11 @@ export async function saveEscala(data: any, mes: number, ano: number) {
         return { id: `local-${Date.now()}`, data, mes, ano };
     }
 
-    const payload = { data, mes, ano, owner: null };
+    // Identificar usuário autenticado, se existir
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id || null;
+
+    const payload = { data, mes, ano, owner: null, user_id: userId };
     const { data: row, error } = await supabase.from('escala').insert(payload).select().single();
     if (error) {
         console.warn('Erro ao inserir no Supabase:', error);
@@ -79,6 +83,27 @@ export async function getEscalaById(id: string) {
     const { data, error } = await supabase.from('escala').select('*').eq('id', id).single();
     if (error) {
         console.warn('Erro ao buscar escala no Supabase:', error);
+        return null;
+    }
+    return data;
+}
+
+export async function getEscalasByUserId(userId: string) {
+    if (!supabase) return null;
+    // Pega a escala mais recente do usuário (mês/ano)
+    const { data, error } = await supabase
+        .from('escala')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+    if (error) {
+        // PGRST116: Nenhum resultado encontrado (primeiro uso do cliente)
+        if (error.code !== 'PGRST116') {
+            console.warn('Erro ao buscar escala do usuário:', error);
+        }
         return null;
     }
     return data;

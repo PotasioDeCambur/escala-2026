@@ -7,7 +7,7 @@ import {
   verificarTamanhoLocalStorage
 } from './utils/optimization';
 
-import { saveEscala, isSupabaseConfigured } from './supabaseClient';
+import { saveEscala, isSupabaseConfigured, getEscalasByUserId } from './supabaseClient';
 import { saveAndReturnLink, copyToClipboard } from './utils/share';
 import { useAuth } from './contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -154,6 +154,32 @@ function App() {
       localStorage.setItem('escala-cloud-id', cloudId);
     }
   }, [cloudId]);
+
+  // Carregar dados da nuvem ao logar (Modo SaaS)
+  useEffect(() => {
+    async function loadCloudData() {
+      if (!user || user.email === 'armandoo.linares@gmail.com') return; // Admin não carrega escala padrão
+
+      try {
+        const data = await getEscalasByUserId(user.id);
+        if (data && data.data) {
+          // Atualiza o estado da aplicação com a escala vinda do Supabase
+          setEscala(data.data as EscalaData);
+          if (data.mes) setMesAtual(data.mes);
+          if (data.ano) setAnoAtual(data.ano);
+          if (data.id) setCloudId(data.id);
+          console.log('☁️ Escala carregada do Supabase!');
+        }
+      } catch (error) {
+        console.error('Erro ao buscar dados da nuvem:', error);
+      }
+    }
+
+    // Só tenta buscar da nuvem se for modo SaaS
+    if (process.env.REACT_APP_MODO_SAAS === 'true') {
+      loadCloudData();
+    }
+  }, [user]);
 
   // Função para sincronizar com a nuvem (Supabase)
   const handleSyncToCloud = async (silent = false) => {
