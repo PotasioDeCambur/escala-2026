@@ -10,6 +10,7 @@ interface AuthContextType {
     hasActiveSubscription: boolean;
     signInWithGoogle: () => Promise<void>;
     signInWithEmail: (email: string, password: string) => Promise<void>;
+    signUpWithEmail: (email: string, password: string) => Promise<void>;
     signOut: () => Promise<void>;
     refreshSubscription: () => Promise<void>;
 }
@@ -96,6 +97,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) throw error;
     };
 
+    const signUpWithEmail = async (email: string, password: string) => {
+        if (!supabase) return;
+        const { error } = await supabase.auth.signUp({
+            email,
+            password
+        });
+        if (error) throw error;
+    };
+
     const signOut = async () => {
         if (!supabase) return;
         await supabase.auth.signOut();
@@ -130,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             hasActiveSubscription,
             signInWithGoogle,
             signInWithEmail,
+            signUpWithEmail,
             signOut,
             refreshSubscription
         }}>

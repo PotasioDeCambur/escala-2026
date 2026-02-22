@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 
 export default function Login() {
-  const { signInWithGoogle, signInWithEmail, user } = useAuth();
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, user } = useAuth();
   const navigate = useNavigate();
   const [view, setView] = useState<'login' | 'signup'>('login');
 
@@ -13,11 +13,8 @@ export default function Login() {
   const [password, setPassword] = useState('');
 
   const [formData, setFormData] = useState({
-    nome: '',
-    empresa: '',
-    whatsapp: '',
     email: '',
-    mensagem: ''
+    password: ''
   });
   const [loading, setLoading] = useState(false);
 
@@ -56,22 +53,24 @@ export default function Login() {
     });
   };
 
-  const handleSubmitLead = async (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) return;
-
     setLoading(true);
-    const { error } = await supabase.from('leads').insert([formData]);
-
-    if (error) {
-      console.error('Erro ao enviar lead:', error);
-      alert('Erro ao enviar solicitação. Tente novamente ou chame no WhatsApp.');
-    } else {
-      alert('Solicitação recebida com sucesso! Em breve entraremos em contato via WhatsApp para liberar seu acesso.');
-      setView('login'); // Volta para a tela de login
-      setFormData({ nome: '', empresa: '', whatsapp: '', email: '', mensagem: '' });
+    try {
+      await signUpWithEmail(formData.email, formData.password);
+      alert('Conta criada com sucesso! Você já pode acessar (se a verificação por email não estiver obrigatória) ou checar seu e-mail.');
+      // signInWithEmail tentará logar automático ou dependendo das configs de confirmação
+      try {
+        await signInWithEmail(formData.email, formData.password);
+      } catch (err) {
+        // Ignora erro se for preciso confirmar e-mail
+      }
+    } catch (error: any) {
+      console.error('Erro ao criar conta:', error);
+      alert('Erro ao criar conta: ' + (error.message || 'Tente novamente.'));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -154,44 +153,9 @@ export default function Login() {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleSubmitLead} className="signup-form fade-in">
-                <h2>Teste Grátis 🚀</h2>
-                <p className="instruction">Preencha para liberar seu acesso VIP por 7 dias.</p>
-
-                <div className="input-group">
-                  <label>Nome Completo</label>
-                  <input
-                    type="text"
-                    name="nome"
-                    required
-                    value={formData.nome}
-                    onChange={handleChange}
-                    placeholder="Ex: João Silva"
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label>Nome da Empresa</label>
-                  <input
-                    type="text"
-                    name="empresa"
-                    value={formData.empresa}
-                    onChange={handleChange}
-                    placeholder="Ex: Mercado Central"
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label>WhatsApp</label>
-                  <input
-                    type="tel"
-                    name="whatsapp"
-                    required
-                    value={formData.whatsapp}
-                    onChange={handleChange}
-                    placeholder="(XX) 9XXXX-XXXX"
-                  />
-                </div>
+              <form onSubmit={handleSignUp} className="signup-form fade-in">
+                <h2>Crie sua Conta 🚀</h2>
+                <p className="instruction">Crie seu usuário para começar 7 dias grátis.</p>
 
                 <div className="input-group">
                   <label>Email Profissional</label>
@@ -205,8 +169,20 @@ export default function Login() {
                   />
                 </div>
 
+                <div className="input-group">
+                  <label>Mínimo de 6 letras ou números</label>
+                  <input
+                    type="password"
+                    name="password"
+                    required
+                    value={formData.password}
+                    onChange={handleChange}
+                    placeholder="Sua senha secreta"
+                  />
+                </div>
+
                 <button type="submit" className="primary-btn" disabled={loading}>
-                  {loading ? 'Enviando...' : 'Solicitar Acesso Agora'}
+                  {loading ? 'Criando Conta...' : 'Criar minha Conta'}
                 </button>
               </form>
             )}
