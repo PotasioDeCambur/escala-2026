@@ -6,7 +6,7 @@ const PLANS = [
   {
     type: 'pro',
     name: 'Escala Pro',
-    price: '49,90',
+    price: '9,90',
     popular: true,
     description: 'Tudo o que sua empresa precisa para organizar e gerenciar escalas de forma inteligente.',
     features: [
