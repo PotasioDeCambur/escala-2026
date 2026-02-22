@@ -22,7 +22,7 @@ const PLANS = [
 ];
 
 export default function Pricing() {
-  const { user, hasActiveSubscription, signOut } = useAuth();
+  const { user, subscription, hasActiveSubscription, signOut } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
@@ -82,9 +82,9 @@ export default function Pricing() {
             <button
               className={`subscribe-btn ${plan.popular ? 'primary' : 'secondary'}`}
               onClick={() => handleSubscribe(plan.link)}
-              disabled={loading || hasActiveSubscription}
+              disabled={loading || (subscription?.status === 'active' || user?.email === 'armandoo.linares@gmail.com')}
             >
-              {hasActiveSubscription ? 'Plano Ativo' : 'Começar Agora'}
+              {(subscription?.status === 'active' || user?.email === 'armandoo.linares@gmail.com') ? 'Plano Ativo' : 'Começar Agora'}
             </button>
           </div>
         ))}
