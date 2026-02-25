@@ -29,7 +29,7 @@ export default function Pricing() {
   const handleSubscribe = (link: string) => {
     if (!user) {
       alert('Você precisa criar uma conta primeiro!');
-      navigate('/login');
+      navigate('/login', { replace: true });
       return;
     }
     setLoading(true);
@@ -44,11 +44,11 @@ export default function Pricing() {
 
   const handleLogout = async () => {
     await signOut();
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   if (!user) {
-    navigate('/login');
+    navigate('/login', { replace: true });
     return null;
   }
 

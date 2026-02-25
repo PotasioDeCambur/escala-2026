@@ -12,9 +12,9 @@ export function SubscriptionGuard({ children }: { children: React.ReactNode }) {
 
         if (!loading) {
             if (!user) {
-                navigate('/login');
+                navigate('/login', { replace: true });
             } else if (!hasActiveSubscription) {
-                navigate('/pricing');
+                navigate('/pricing', { replace: true });
             }
         }
     }, [user, loading, hasActiveSubscription, navigate, isSaasMode]);
