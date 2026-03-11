@@ -82,23 +82,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabase.auth.getSession().then(({ data: { session } }) => {
             setUser(session?.user ?? null);
             if (session?.user) {
-                checkSubscription(session.user.id);
-                checkUserProfile(session.user.id);
+                Promise.all([
+                    checkSubscription(session.user.id),
+                    checkUserProfile(session.user.id)
+                ]).finally(() => setLoading(false));
+            } else {
+                setLoading(false);
             }
-            setLoading(false);
         });
 
         // Escuta mudanças na autenticação
         const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange((_event, session) => {
             setUser(session?.user ?? null);
             if (session?.user) {
-                checkSubscription(session.user.id);
-                checkUserProfile(session.user.id);
+                Promise.all([
+                    checkSubscription(session.user.id),
+                    checkUserProfile(session.user.id)
+                ]).finally(() => setLoading(false));
             } else {
                 setSubscription(null);
                 setIsBlocked(false);
+                setLoading(false);
             }
-            setLoading(false);
         });
 
         return () => {
