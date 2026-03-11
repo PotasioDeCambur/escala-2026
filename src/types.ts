@@ -47,5 +47,13 @@ export interface UserProfile {
     email: string;
     full_name?: string;
     avatar_url?: string;
+    access_status?: 'active' | 'blocked';
     subscription?: Subscription | null;
+}
+
+export interface AdminUser {
+    id: string;
+    email: string;
+    access_status: 'active' | 'blocked';
+    created_at: string;
 }

@@ -20,7 +20,7 @@ export default function Login() {
 
   React.useEffect(() => {
     if (user) {
-      navigate('/');
+      navigate('/', { replace: true });
     }
   }, [user, navigate]);
 

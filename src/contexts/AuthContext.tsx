@@ -13,6 +13,7 @@ interface AuthContextType {
     signUpWithEmail: (email: string, password: string) => Promise<void>;
     signOut: () => Promise<void>;
     refreshSubscription: () => Promise<void>;
+    isBlocked: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -20,6 +21,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [subscription, setSubscription] = useState<Subscription | null>(null);
+    const [isBlocked, setIsBlocked] = useState(false);
     const [loading, setLoading] = useState(true);
 
     const checkSubscription = async (userId: string) => {
@@ -46,6 +48,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const checkUserProfile = async (userId: string) => {
+        if (!supabase) return;
+
+        try {
+            const { data, error } = await supabase
+                .from('user_profiles')
+                .select('access_status')
+                .eq('id', userId)
+                .single();
+
+            if (error && error.code !== 'PGRST116') {
+                console.error('Erro ao buscar perfil do usuário:', error);
+            }
+
+            if (data) {
+                setIsBlocked(data.access_status === 'blocked');
+            } else {
+                setIsBlocked(false);
+            }
+        } catch (error) {
+            console.error('Erro ao verificar perfil do usuário:', error);
+        }
+    };
+
     useEffect(() => {
         if (!supabase) {
             setLoading(false);
@@ -57,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(session?.user ?? null);
             if (session?.user) {
                 checkSubscription(session.user.id);
+                checkUserProfile(session.user.id);
             }
             setLoading(false);
         });
@@ -66,8 +93,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(session?.user ?? null);
             if (session?.user) {
                 checkSubscription(session.user.id);
+                checkUserProfile(session.user.id);
             } else {
                 setSubscription(null);
+                setIsBlocked(false);
             }
             setLoading(false);
         });
@@ -111,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await supabase.auth.signOut();
         setUser(null);
         setSubscription(null);
+        setIsBlocked(false);
     };
 
     // Helper para verificar se a assinatura é válida
@@ -142,7 +172,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             signInWithEmail,
             signUpWithEmail,
             signOut,
-            refreshSubscription
+            refreshSubscription,
+            isBlocked
         }}>
             {!loading && children}
         </AuthContext.Provider>
