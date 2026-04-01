@@ -38,7 +38,7 @@ import {
 } from './utils/historyUtils';
 
 function App() {
-  const { user } = useAuth();
+  const { user, inviteDetails } = useAuth();
   const navigate = useNavigate();
   const [escala, setEscala] = useState<EscalaData>(() => {
     const savedEscala = localStorage.getItem('escala-horarios');
@@ -89,6 +89,28 @@ function App() {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showAutoFillModal, setShowAutoFillModal] = useState(false);
+  const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
+
+  const [showMenuDropdown, setShowMenuDropdown] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Element;
+      // Evita fechamento quando se clica no próprio botão da bottom nav (para que o toggle dele funcione e não reverta)
+      if (menuRef.current && !menuRef.current.contains(target) && !target.closest('.bottom-nav-bar')) {
+        setShowMenuDropdown(false);
+      }
+    };
+    if (showMenuDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [showMenuDropdown]);
 
   const [historyList, setHistoryList] = useState<HistoryMetadata[]>([]);
   const [cloudId, setCloudId] = useState<string | null>(() => localStorage.getItem('escala-cloud-id'));
@@ -175,10 +197,8 @@ function App() {
       }
     }
 
-    // Só tenta buscar da nuvem se for modo SaaS
-    if (process.env.REACT_APP_MODO_SAAS === 'true') {
-      loadCloudData();
-    }
+    // Sempre busca da nuvem (Modo SaaS Ativo)
+    loadCloudData();
   }, [user]);
 
   // Função para sincronizar com a nuvem (Supabase)
@@ -538,7 +558,7 @@ function App() {
       funcionarios: [...prevEscala.funcionarios, newFuncionario],
       dias: prevEscala.dias.map(dia => ({
         ...dia,
-        horarios: [...dia.horarios, { funcionarioId: newFuncionario.id, horario: "FOLGA" }]
+        horarios: [...dia.horarios, { funcionarioId: newFuncionario.id, horario: "" }]
       }))
     }));
   };
@@ -573,8 +593,8 @@ function App() {
           funcionarios: [...current.funcionarios, funcionarioToRemove],
           dias: current.dias.map(dia => {
             const backup = horariosBackup.find(b => b.diaId === dia.dia);
-            // Se tinha horário salvo, restaura. Se não, restaura como FOLGA (fallback se algo falhar)
-            const horarioRestaurado = backup?.horarioItem || { funcionarioId: funcionarioIdToRemove, horario: "FOLGA" };
+            // Se tinha horário salvo, restaura. Se não, restaura zerado (fallback se algo falhar)
+            const horarioRestaurado = backup?.horarioItem || { funcionarioId: funcionarioIdToRemove, horario: "" };
             return {
               ...dia,
               horarios: [...dia.horarios, horarioRestaurado]
@@ -731,6 +751,56 @@ function App() {
     await exportToExcel(escala, funcionarios, diasMes, mesAtual, anoAtual);
   };
 
+  const handleGerarLink = async () => {
+    const hoje = new Date();
+    const mesReal = hoje.getMonth() + 1;
+    const anoReal = hoje.getFullYear();
+
+    if (mesAtual !== mesReal || anoAtual !== anoReal) {
+      const nomeMesAtual = meses.find(m => m.valor === mesAtual)?.nome.toUpperCase();
+      const nomeMesReal = meses.find(m => m.valor === mesReal)?.nome.toUpperCase();
+
+      const confirmed = window.confirm(
+        `⚠️ ATENÇÃO: DATA DIVERGENTE!\n\n` +
+        `Você está compartilhando a escala de ${nomeMesAtual}/${anoAtual}.\n` +
+        `Porém, estamos em ${nomeMesReal}/${anoReal}.\n\n` +
+        `Tem certeza que deseja compartilhar essa escala antiga/futura?`
+      );
+
+      if (!confirmed) return;
+    }
+
+    const escalaData = {
+      dias: escala.dias,
+      funcionarios: escala.funcionarios,
+      vencedorId: escala.vencedorId,
+      mes: mesAtual,
+      ano: anoAtual
+    };
+
+    try {
+      const { link, savedOn, id } = await saveAndReturnLink(
+        escalaData,
+        mesAtual,
+        anoAtual,
+        cloudId || undefined
+      );
+      if (id && !id.startsWith('local-')) {
+        setCloudId(id);
+        setLastSyncTime(new Date().toLocaleTimeString());
+      }
+      const copied = await copyToClipboard(link);
+      if (copied) {
+        alert(`Link da escala mobile copiado! (${savedOn})`);
+      } else {
+        alert('Link gerado, mas não foi possível copiar automaticamente. Cole manualmente: ' + link);
+      }
+    } catch (err) {
+      console.error('Erro ao gerar link de compartilhamento:', err);
+      alert('Erro ao gerar link. Tente novamente.');
+    }
+  };
+
   // Calcula uso do localStorage
   const { tamanho, limite } = verificarTamanhoLocalStorage();
   const percentualUso = (tamanho / limite) * 100;
@@ -757,9 +827,23 @@ function App() {
     alert("Escala preenchida com sucesso!");
   };
 
+  let trialDaysLeft: number | null = null;
+  if (inviteDetails && inviteDetails.status === 'approved' && inviteDetails.granted_days != null) {
+    const reviewedAt = inviteDetails.reviewed_at ? new Date(inviteDetails.reviewed_at) : new Date();
+    const end = new Date(reviewedAt);
+    end.setDate(end.getDate() + inviteDetails.granted_days);
+    const now = new Date();
+
+    // Apenas consideramos "trials" as datas palpáveis, e excluímos "ilimitado" (futuro distante)
+    if (end.getFullYear() < 2090) {
+      const diffMs = end.getTime() - now.getTime();
+      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      trialDaysLeft = diffDays > 0 ? diffDays : 0;
+    }
+  }
+
   return (
-    <div className="container">
-      {/* Notificação Toast de Desfazer (Novo) */}
+    <div className="container">      {/* Notificação Toast de Desfazer (Novo) */}
       <div className={`undo-toast ${undoToast.isVisible ? 'visible' : ''}`}>
         <span className="undo-message">{undoToast.message}</span>
         <button onClick={handleUndo} className="undo-action-btn">
@@ -776,7 +860,8 @@ function App() {
           onClick={async () => {
             // Sincroniza antes de compartilhar para garantir link atualizado
             const link = await handleSyncToCloud();
-            const message = `📅 *ESCALA DE HORÁRIOS - ${getNomeMes(mesAtual).toUpperCase()} ${anoAtual}*\n\nOlá! Aqui está o link da escala de horários:\n\n🔗 ${link}\n\n📋 *Funcionários:* ${funcionarios.map(f => f.nome).join(', ')}\n📅 *Período:* ${getNomeMes(mesAtual)} ${anoAtual}\n\nAcesse o link para ver seus horários e folgas! 👆`;
+            const activeFuncionarios = funcionarios.filter(f => escala.dias.some(d => d.horarios.some(h => h.funcionarioId === f.id && h.horario)));
+            const message = `📅 *ESCALA DE HORÁRIOS - ${getNomeMes(mesAtual).toUpperCase()} ${anoAtual}*\n\nOlá! Aqui está o link da escala de horários:\n\n🔗 ${link}\n\n📋 *Funcionários:* ${activeFuncionarios.map(f => f.nome).join(', ')}\n📅 *Período:* ${getNomeMes(mesAtual)} ${anoAtual}\n\nAcesse o link para ver seus horários e folgas! 👆`;
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
             if (isMobile) {
               window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
@@ -794,9 +879,17 @@ function App() {
       <div className="header-saas">
         <div className="header-top-row">
           <div className="header-branding">
-            <h1>📅 ESCALA DE HORÁRIOS</h1>
+            <h1>
+              📅 ESCALA DE HORÁRIOS
+              {!isSupabaseConfigured() ? (
+                <span className="connection-status offline" title="Sistema desconectado da nuvem"><span className="status-dot"></span></span>
+              ) : (
+                <span className={`connection-status inline-status ${syncError ? 'offline' : (isSyncing ? 'syncing' : 'online')}`} title={syncError ? "Erro ao salvar" : (isSyncing ? "Sincronizando..." : "Sistema conectado e salvo")}>
+                  <span className="status-dot"></span>
+                </span>
+              )}
+            </h1>
             <p className="subtitle">Gerencie sua escala com facilidade e eficiência</p>
-
           </div>
 
           <div className="header-month-selector">
@@ -829,56 +922,92 @@ function App() {
                 ))}
               </select>
             </div>
+
+            {trialDaysLeft !== null && (
+              <div
+                className="trial-pill"
+                onClick={() => navigate('/pricing')}
+                title="Clique para garantir seu acesso permanente"
+              >
+                <span className="trial-pill-icon">⏳</span>
+                <span className="trial-pill-text">
+                  {trialDaysLeft > 0 ? `${trialDaysLeft} dias restantes` : 'Teste expirado'}
+                </span>
+                <span className="trial-pill-action">ASSINAR</span>
+              </div>
+            )}
+
+            <div className="selector-group theme-toggle-group">
+              <button
+                onClick={toggleTheme}
+                className="btn-icon"
+                title={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}
+                style={{ height: '38px', width: '38px', fontSize: '1.2rem', marginTop: '14px' }}
+              >
+                {theme === 'dark' ? '☀️' : '🌙'}
+              </button>
+            </div>
           </div>
 
           <div className="header-utils">
-            {/* Connection Status Indicator */}
-            {!isSupabaseConfigured() ? (
-              <div className="connection-status offline" title="Sistema desconectado da nuvem">
-                <span className="status-dot"></span>
-              </div>
-            ) : (
-              <div className={`connection-status ${syncError ? 'offline' : (isSyncing ? 'syncing' : 'online')}`}
-                title={syncError ? "Erro ao salvar" : (isSyncing ? "Sincronizando..." : "Sistema conectado e salvo")}>
-                <span className="status-dot"></span>
-              </div>
-            )}
 
-            <button onClick={toggleTheme} className="btn-icon" title={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}>
-              {theme === 'dark' ? '☀️' : '🌙'}
-            </button>
-            <button onClick={handleOpenHistory} className="btn-icon" title="Máquina do Tempo (Histórico)">
-              🕰️
-            </button>
-            <button onClick={() => setShowConfigModal(true)} className="btn-saas btn-ghost" title="Gerenciar Horários">
-              🕒 HORÁRIOS
-            </button>
-            {user?.email === 'armandoo.linares@gmail.com' && (
+            <div className="dropdown-container" ref={menuRef}>
               <button
-                onClick={() => navigate('/admin')}
-                className="btn-saas btn-ghost"
-                title="Painel Admin Secreto"
-                style={{ color: '#28a745', borderColor: '#28a745' }}
+                onClick={() => setShowMenuDropdown(!showMenuDropdown)}
+                className={`btn-icon hamburger-btn hide-on-mobile ${showMenuDropdown ? 'active' : ''}`}
+                title="Mais Opções"
               >
-                ⚙️ ADMIN
+                ☰
               </button>
-            )}
-            <button onClick={handleDestaque} className="btn-icon" title="Destaque">
-              👑
-            </button>
+
+              {showMenuDropdown && (
+                <div className="dropdown-menu">
+                  {/* Cabeçalho mobile com botão de fechar */}
+                  <div className="dropdown-mobile-header">
+                    <span>Menu de Opções</span>
+                    <button onClick={() => setShowMenuDropdown(false)} className="close-menu-btn" title="Fechar Menu">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                  </div>
+
+                  <div className="dropdown-section">
+                    <span className="dropdown-label">Visualização / Relatórios</span>
+                    <button onClick={() => { handleExportPdf(); setShowMenuDropdown(false); }} className="dropdown-item">📄 PDF</button>
+                    <button onClick={() => { handleExportExcel(); setShowMenuDropdown(false); }} className="dropdown-item">📊 EXCEL</button>
+                    <button onClick={() => { handleExportGoogleSheets(); setShowMenuDropdown(false); }} className="dropdown-item">📑 SHEETS</button>
+                    <button onClick={() => { handleGerarLink(); setShowMenuDropdown(false); }} className="dropdown-item">🔗 LINK (MOBILE)</button>
+                    <button onClick={() => { window.location.href = '/parcial'; }} className="dropdown-item">📅 VISTA PARCIAL</button>
+                    <button onClick={() => { window.location.href = '/mobile'; }} className="dropdown-item">📱 CLONE MOBILE</button>
+                  </div>
+
+                  <div className="dropdown-section">
+                    <span className="dropdown-label">Configurações & Utilitários</span>
+                    <button onClick={() => { setShowConfigModal(true); setShowMenuDropdown(false); }} className="dropdown-item">🕒 HORÁRIOS & REGRAS</button>
+                    <button onClick={() => { handleOpenHistory(); setShowMenuDropdown(false); }} className="dropdown-item">🕰️ MÁQUINA DO TEMPO</button>
+                    <button onClick={() => { handleDestaque(); setShowMenuDropdown(false); }} className="dropdown-item">👑 DESTAQUE</button>
+                    {user?.email === 'armandoo.linares@gmail.com' && (
+                      <button onClick={() => navigate('/admin')} className="dropdown-item text-green">⚙️ PAINEL ADMIN</button>
+                    )}
+                  </div>
+
+                  <div className="dropdown-divider"></div>
+                  <button onClick={() => { handleZerarEscala(); setShowMenuDropdown(false); }} className="dropdown-item text-danger">🗑️ ZERAR ESCALA</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="actions-toolbar">
-          <div className="toolbar-group main">
+        <div className="actions-toolbar polymarket-style">
+          <div className="toolbar-group main hide-on-mobile">
             <button
               onClick={() => setIsEditing(!isEditing)}
-              className={`btn-saas ${isEditing ? 'btn-save' : 'btn-edit'}`}
+              className={`btn-saas ${isEditing ? 'btn-save solid' : 'btn-ghost-primary'}`}
             >
               {isEditing ? '💾 SALVAR ALTERAÇÕES' : '📝 EDITAR ESCALA'}
             </button>
             {isEditing && (
-              <button onClick={handleAddFuncionario} className="btn-saas btn-add">
+              <button onClick={handleAddFuncionario} className="btn-saas btn-ghost">
                 ➕ NOVO FUNCIONÁRIO
               </button>
             )}
@@ -891,7 +1020,9 @@ function App() {
             </button>
           </div>
 
-          <div className="toolbar-group secondary">
+          <div className="toolbar-divider hide-on-mobile"></div>
+
+          <div className={`toolbar-group secondary scrollable-actions ${isToolbarExpanded ? 'expanded' : ''}`}>
             <button onClick={handleExportPdf} className="btn-saas btn-ghost">
               📄 PDF
             </button>
@@ -901,56 +1032,7 @@ function App() {
             <button onClick={handleExportGoogleSheets} className="btn-saas btn-ghost" title="Abrir no Google Sheets">
               📑 SHEETS
             </button>
-            <button onClick={async () => {
-              // Verificação de data (Segurança)
-              const hoje = new Date();
-              const mesReal = hoje.getMonth() + 1;
-              const anoReal = hoje.getFullYear();
-
-              if (mesAtual !== mesReal || anoAtual !== anoReal) {
-                const nomeMesAtual = meses.find(m => m.valor === mesAtual)?.nome.toUpperCase();
-                const nomeMesReal = meses.find(m => m.valor === mesReal)?.nome.toUpperCase();
-
-                const confirmed = window.confirm(
-                  `⚠️ ATENÇÃO: DATA DIVERGENTE!\n\n` +
-                  `Você está compartilhando a escala de ${nomeMesAtual}/${anoAtual}.\n` +
-                  `Porém, estamos em ${nomeMesReal}/${anoReal}.\n\n` +
-                  `Tem certeza que deseja compartilhar essa escala antiga/futura?`
-                );
-
-                if (!confirmed) return;
-              }
-
-              const escalaData = {
-                dias: escala.dias,
-                funcionarios: escala.funcionarios,
-                vencedorId: escala.vencedorId,
-                mes: mesAtual,
-                ano: anoAtual
-              };
-
-              try {
-                const { link, savedOn, id } = await saveAndReturnLink(
-                  escalaData,
-                  mesAtual,
-                  anoAtual,
-                  cloudId || undefined
-                );
-                if (id && !id.startsWith('local-')) {
-                  setCloudId(id);
-                  setLastSyncTime(new Date().toLocaleTimeString());
-                }
-                const copied = await copyToClipboard(link);
-                if (copied) {
-                  alert(`Link da escala mobile copiado! (${savedOn})`);
-                } else {
-                  alert('Link gerado, mas não foi possível copiar automaticamente. Cole manualmente: ' + link);
-                }
-              } catch (err) {
-                console.error('Erro ao gerar link de compartilhamento:', err);
-                alert('Erro ao gerar link. Tente novamente.');
-              }
-            }} className="btn-saas btn-ghost">
+            <button onClick={handleGerarLink} className="btn-saas btn-ghost">
               🔗 LINK
             </button>
             <button onClick={() => window.location.href = '/parcial'} className="btn-saas btn-ghost">
@@ -958,12 +1040,6 @@ function App() {
             </button>
             <button onClick={() => window.location.href = '/mobile'} className="btn-saas btn-ghost">
               📱 MOBILE
-            </button>
-          </div>
-
-          <div className="toolbar-group danger">
-            <button onClick={handleZerarEscala} className="btn-saas btn-danger-ghost" title="Zerar Escala">
-              🗑️ ZERAR ESCALA
             </button>
           </div>
         </div>
@@ -1436,6 +1512,59 @@ function App() {
         ano={anoAtual}
         escala={escala}
       />
+
+      {/* --- Navegação Inferior para Mobile --- */}
+      <nav className="bottom-nav-bar">
+        <button onClick={() => {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          if (isEditing) setIsEditing(false);
+          setShowMenuDropdown(false);
+        }} className={`bottom-nav-item ${!isEditing && !showMenuDropdown ? 'active' : ''}`}>
+          <span className="icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
+          </span>
+          Início
+        </button>
+        <button onClick={() => {
+          setIsEditing(!isEditing);
+          setShowMenuDropdown(false);
+        }} className={`bottom-nav-item ${isEditing ? 'active' : ''}`}>
+          <span className="icon">
+            {isEditing ? (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
+            ) : (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+            )}
+          </span>
+          {isEditing ? 'Salvar' : 'Editar'}
+        </button>
+        {isEditing && (
+          <button onClick={() => handleAddFuncionario()} className="bottom-nav-item">
+            <span className="icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+            </span>
+            Add
+          </button>
+        )}
+        {!isEditing && (
+          <button onClick={() => {
+            setShowAutoFillModal(true);
+            setShowMenuDropdown(false);
+          }} className="bottom-nav-item">
+            <span className="icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /><path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" /></svg>
+            </span>
+            Magia
+          </button>
+        )}
+        <button onClick={() => setShowMenuDropdown(!showMenuDropdown)} className={`bottom-nav-item ${showMenuDropdown ? 'active' : ''}`}>
+          <span className="icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" /></svg>
+          </span>
+          Mais
+        </button>
+      </nav>
+
     </div>
   );
 }

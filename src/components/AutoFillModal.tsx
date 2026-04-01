@@ -38,6 +38,7 @@ export const AutoFillModal: React.FC<AutoFillModalProps> = ({
         horario: '',
         folgasSelecionadas: []
     });
+    const [activeTab, setActiveTab] = useState<'config' | 'calendar'>('config');
 
     // Calcula os dias do calendário
     const calendarDays = useMemo(() => getCalendarGrid(mes, ano), [mes, ano]);
@@ -73,6 +74,7 @@ export const AutoFillModal: React.FC<AutoFillModalProps> = ({
                 horario: (prev.horario && prev.horario !== '10:00 - 16:00') ? prev.horario : (frequentHorarios.length > 0 ? frequentHorarios[0] : ''),
                 folgasSelecionadas: []
             }));
+            setActiveTab('config');
         }
     }, [isOpen, frequentHorarios]);
 
@@ -96,9 +98,27 @@ export const AutoFillModal: React.FC<AutoFillModalProps> = ({
                     <button className="modal-close" onClick={onClose}>×</button>
                 </div>
                 <div className="modal-body">
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(250px, 1fr) 2fr', gap: '32px' }}>
+                    {/* Abas Mobile */}
+                    <div className="autofill-tabs-mobile">
+                        <button 
+                            className={`autofill-tab-btn ${activeTab === 'config' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('config')}
+                        >
+                            <span style={{ marginRight: '8px' }}>⚙️</span>
+                            Configuração
+                        </button>
+                        <button 
+                            className={`autofill-tab-btn ${activeTab === 'calendar' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('calendar')}
+                        >
+                            <span style={{ marginRight: '8px' }}>📅</span>
+                            Calendário
+                        </button>
+                    </div>
+
+                    <div className={`autofill-content-grid ${activeTab}`}>
                         {/* Coluna da Esquerda: Configurações */}
-                        <div className="config-column" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div className="autofill-config-panel config-column" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             <div className="config-field">
                                 <label style={{ color: 'var(--text-main)' }}>Funcionário</label>
                                 <select
@@ -220,7 +240,7 @@ export const AutoFillModal: React.FC<AutoFillModalProps> = ({
                         </div>
 
                         {/* Coluna da Direita: Calendário */}
-                        <div className="calendar-column">
+                        <div className="autofill-calendar-panel calendar-column">
                             <div className="config-section-title" style={{ marginTop: '0', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ color: 'var(--text-main)' }}>📅 Selecione os dias de FOLGA</span>
                                 <div style={{ fontSize: '0.8rem', fontWeight: 'normal', color: 'var(--text-main)' }}>

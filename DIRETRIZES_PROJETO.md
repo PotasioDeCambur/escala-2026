@@ -29,8 +29,22 @@ O sistema deve manter uma estética **Premium, Moderna e Limpa**.
 
 ### 🧪 Boas Práticas
 - **Clean Code**: Nomes de variáveis claros, funções pequenas.
-- **CSS**: Preferir variáveis CSS (`var(--cor)`) a cores hardcoded.
+- **CSS e Modo Escuro (OBRIGATÓRIO)**: Ao criar novas telas ou componentes, **NUNCA** use cores chumbadas (*hardcoded*) como `#FFFFFF`, `white`, ou `#000` para fundos e textos. Use **sempre** variáveis semânticas globais para garantir compatibilidade nativa entre Modo Claro e Modo Escuro:
+  - Fundos gerais: `var(--background)`
+  - Fundo de containers/tabelas/modal: `var(--surface)` ou `var(--highlight-bg)`
+  - Textos principais: `var(--text-main)` ou secundários `var(--text-secondary)`
+  - Bordas e linhas limitadoras: `var(--border)`
 - **Comentários**: Explicar trechos complexos, especialmente lógica de data e banco de dados.
 
 ---
 *Este documento deve ser consultado antes de qualquer alteração significativa.*
+
+## 🚀 3. Git e Controle de Versão (Escala Premium)
+
+Ao realizar *commits* e *pushes* via agente, lembre-se destas diretrizes críticas em relação ao PowerShell do sistema:
+- **Execução Única**: Não utilizar operadores como `&&` ou `||` para encadear comandos, pois o terminal padrão do Windows pode apresentar erros (`InvalidEndOfLine`). Execute os comandos sempre de maneira sequential:
+  1. `git add .`
+  2. `git commit -m "tipo(escopo): descrição concisa do que foi alterado"`
+  3. `git push origin main`
+- **Destino Final**: Todo o código desta pasta (`escala`) está conectado 100% ao repositório `escala-premium`.
+- Foi criado o workflow `.agents/workflows/github-push.md` que possui esses passos marcados com `// turbo` para facilitar uploads automáticos pelo assistente.

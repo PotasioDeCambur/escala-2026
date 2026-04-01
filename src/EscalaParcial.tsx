@@ -283,7 +283,8 @@ function EscalaParcial() {
     try {
       const { link } = await saveAndReturnLink(escalaFiltrada, mes, anoAtual);
 
-      const message = `📅 *ESCALA PARCIAL - ${dataInicial} a ${dataFinal}* (${anoAtual})\n\nOlá! Confira a escala de horários para este período:\n\n🔗 ${link}\n\n📋 *Funcionários:* ${funcionarios.map(f => f.nome).join(', ')}\n\nAcesse o link para ver os detalhes! 👆`;
+      const activeFuncionarios = funcionarios.filter(f => escalaFiltrada.dias.some(d => d.horarios.some(h => h.funcionarioId === f.id && h.horario)));
+      const message = `📅 *ESCALA PARCIAL - ${dataInicial} a ${dataFinal}* (${anoAtual})\n\nOlá! Confira a escala de horários para este período:\n\n🔗 ${link}\n\n📋 *Funcionários:* ${activeFuncionarios.map(f => f.nome).join(', ')}\n\nAcesse o link para ver os detalhes! 👆`;
 
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       if (isMobile) {

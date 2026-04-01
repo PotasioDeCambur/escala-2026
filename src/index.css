@@ -12,7 +12,8 @@ body {
 }
 
 .container {
-    max-width: 1200px;
+    width: 100%;
+    max-width: 1400px;
     margin: 0 auto;
     padding: 20px;
 }
@@ -117,6 +118,7 @@ tr:nth-child(even) {
     color: #475569;
     background: #f8fafc;
     min-width: 120px;
+    width: 150px;
 }
 
 .horario-cell {
@@ -160,6 +162,7 @@ tr:nth-child(even) {
 @media (max-width: 768px) {
     .container {
         padding: 10px;
+        width: 100%;
     }
 
     .header h1 {
@@ -174,5 +177,8 @@ tr:nth-child(even) {
 
     .data-cell {
         min-width: 100px;
+        width: auto;
+        text-align: left;
+        padding-left: 12px;
     }
 }

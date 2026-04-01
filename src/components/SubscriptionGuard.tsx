@@ -3,9 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export function SubscriptionGuard({ children }: { children: React.ReactNode }) {
-    const isSaasMode = process.env.REACT_APP_MODO_SAAS === 'true';
-    const { user, loading, hasActiveSubscription, isBlocked, signOut } = useAuth();
+    // Modo SaaS ativado por padrão; pode ser desligado via REACT_APP_MODO_SAAS=false
+    const isSaasMode = process.env.REACT_APP_MODO_SAAS !== 'false';
+    const { user, loading, hasActiveSubscription, inviteStatus, isBlocked, signOut } = useAuth();
     const navigate = useNavigate();
+
+    // Acesso válido = assinatura ativa OU convite aprovado
+    const hasAccess = hasActiveSubscription || inviteStatus === 'approved';
 
     useEffect(() => {
         if (!isSaasMode) return;
@@ -21,11 +25,11 @@ export function SubscriptionGuard({ children }: { children: React.ReactNode }) {
 
             if (!user) {
                 navigate('/login', { replace: true });
-            } else if (!hasActiveSubscription) {
+            } else if (!hasAccess) {
                 navigate('/pricing', { replace: true });
             }
         }
-    }, [user, loading, hasActiveSubscription, navigate, isSaasMode, isBlocked, signOut]);
+    }, [user, loading, hasAccess, navigate, isSaasMode, isBlocked, signOut]);
 
     if (!isSaasMode) {
         return <>{children}</>;
@@ -35,7 +39,7 @@ export function SubscriptionGuard({ children }: { children: React.ReactNode }) {
         return <div className="loading-screen">Carregando...</div>;
     }
 
-    if (!user || !hasActiveSubscription || isBlocked) {
+    if (!user || !hasAccess || isBlocked) {
         return null; // Evita flash de conteúdo antes do redirect
     }
 

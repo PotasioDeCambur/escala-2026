@@ -1,14 +1,16 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { User } from '@supabase/supabase-js';
-import { Subscription } from '../types';
+import { Subscription, Invite } from '../types';
 
 interface AuthContextType {
     user: User | null;
     subscription: Subscription | null;
     loading: boolean;
     hasActiveSubscription: boolean;
-    signInWithGoogle: () => Promise<void>;
+    inviteStatus: 'pending' | 'approved' | 'rejected' | null;
+    inviteDetails: Invite | null;
+    signInWithGoogle?: () => Promise<void>;
     signInWithEmail: (email: string, password: string) => Promise<void>;
     signUpWithEmail: (email: string, password: string) => Promise<void>;
     signOut: () => Promise<void>;
@@ -22,6 +24,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [subscription, setSubscription] = useState<Subscription | null>(null);
     const [isBlocked, setIsBlocked] = useState(false);
+    const [inviteStatus, setInviteStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
+    const [inviteDetails, setInviteDetails] = useState<Invite | null>(null);
     const [loading, setLoading] = useState(true);
 
     const checkSubscription = async (userId: string) => {
@@ -72,6 +76,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const checkInviteStatus = async (userId: string) => {
+        if (!supabase) return;
+
+        try {
+            const { data, error } = await supabase
+                .from('invites')
+                .select('*')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (error && error.code !== 'PGRST116') {
+                console.error('Erro ao buscar convite:', error);
+            }
+
+            if (data) {
+                setInviteStatus(data.status as 'pending' | 'approved' | 'rejected');
+                setInviteDetails(data as Invite);
+            } else {
+                setInviteStatus(null);
+                setInviteDetails(null);
+            }
+        } catch (error) {
+            console.error('Erro ao verificar convite:', error);
+        }
+    };
+
     useEffect(() => {
         if (!supabase) {
             setLoading(false);
@@ -82,9 +114,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabase.auth.getSession().then(({ data: { session } }) => {
             setUser(session?.user ?? null);
             if (session?.user) {
+                setLoading(true);
                 Promise.all([
                     checkSubscription(session.user.id),
-                    checkUserProfile(session.user.id)
+                    checkUserProfile(session.user.id),
+                    checkInviteStatus(session.user.id)
                 ]).finally(() => setLoading(false));
             } else {
                 setLoading(false);
@@ -95,13 +129,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange((_event, session) => {
             setUser(session?.user ?? null);
             if (session?.user) {
+                setLoading(true);
                 Promise.all([
                     checkSubscription(session.user.id),
-                    checkUserProfile(session.user.id)
+                    checkUserProfile(session.user.id),
+                    checkInviteStatus(session.user.id)
                 ]).finally(() => setLoading(false));
             } else {
                 setSubscription(null);
                 setIsBlocked(false);
+                setInviteStatus(null);
+                setInviteDetails(null);
                 setLoading(false);
             }
         });
@@ -115,12 +153,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!supabase) return;
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
-            options: {
-                redirectTo: window.location.origin
-            }
+            options: { redirectTo: window.location.origin }
         });
         if (error) throw error;
     };
+
 
     const signInWithEmail = async (email: string, password: string) => {
         if (!supabase) return;
@@ -146,6 +183,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         setSubscription(null);
         setIsBlocked(false);
+        setInviteStatus(null);
+        setInviteDetails(null);
     };
 
     // Helper para verificar se a assinatura é válida
@@ -173,6 +212,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             subscription,
             loading,
             hasActiveSubscription,
+            inviteStatus,
+            inviteDetails,
             signInWithGoogle,
             signInWithEmail,
             signUpWithEmail,

@@ -36,7 +36,7 @@ export interface Subscription {
     id: string;
     user_id: string;
     status: 'active' | 'trialing' | 'past_due' | 'canceled' | 'unpaid';
-    plan_type: 'basic' | 'pro' | 'enterprise';
+    plan_type: 'basic' | 'pro' | 'enterprise' | 'invited';
     current_period_end: string;
     mp_preapproval_id?: string;
     created_at: string;
@@ -55,5 +55,19 @@ export interface AdminUser {
     id: string;
     email: string;
     access_status: 'active' | 'blocked';
+    created_at: string;
+}
+
+export interface Invite {
+    id: string;
+    user_id: string;
+    email: string;
+    name: string;
+    company?: string;
+    phone?: string;
+    reason?: string;
+    status: 'pending' | 'approved' | 'rejected';
+    granted_days?: number | null;
+    reviewed_at?: string;
     created_at: string;
 }

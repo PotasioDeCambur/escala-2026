@@ -141,7 +141,7 @@ export const exportToPdf = async (
             }
 
             // Texto
-            const displayText = isFeriado(data, ano) ? 'FERIADO' : (horario || '');
+            const displayText = isFeriado(data, ano) ? (horario || 'FERIADO') : (horario || '');
             const textWidth = pdf.getTextWidth(displayText);
             const textX = cellX + (colWidth - textWidth) / 2;
             pdf.text(displayText, textX, currentY + (rowHeight / 2) + 1);
@@ -240,7 +240,7 @@ export const exportToGoogleSheets = async (
                     cellStyle += 'background-color: #efe575; font-weight: bold; color: #000;';
                 } else if (horario === 'FERIADO' || isFeriado(data, ano)) {
                     cellStyle += 'background-color: #fef2f2; color: #7f1d1d; font-weight: bold;';
-                    if (isFeriado(data, ano)) cellContent = 'FERIADO';
+                    if (isFeriado(data, ano)) cellContent = horario || 'FERIADO';
                 }
 
                 html += `<td style="${cellStyle}">${cellContent}</td>`;
@@ -257,7 +257,7 @@ export const exportToGoogleSheets = async (
             const row = [`${data} (${diaSemana})`];
             funcionarios.forEach(func => {
                 const h = getHorarioFuncionario(escala, dia, func.id);
-                row.push(isFeriado(data, ano) ? 'FERIADO' : (h || ''));
+                row.push(isFeriado(data, ano) ? (h || 'FERIADO') : (h || ''));
             });
             textRows.push(row.join('\t'));
         });
@@ -280,7 +280,7 @@ export const exportToGoogleSheets = async (
                 const row = [`${data} (${diaSemana})`];
                 funcionarios.forEach(func => {
                     const h = getHorarioFuncionario(escala, dia, func.id);
-                    row.push(isFeriado(data, ano) ? 'FERIADO' : (h || ''));
+                    row.push(isFeriado(data, ano) ? (h || 'FERIADO') : (h || ''));
                 });
                 textRows.push(row.join('\t'));
             });
