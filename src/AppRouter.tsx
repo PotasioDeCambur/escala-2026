@@ -3,43 +3,26 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import App from './App';
 import EscalaParcial from './EscalaParcial';
 import MobileEscala from './MobileEscala';
-import Login from './Login';
 import Pricing from './Pricing';
-import AdminDashboard from './AdminDashboard'; // Importando o Admin
-import { SubscriptionGuard } from './components/SubscriptionGuard';
+import AdminDashboard from './AdminDashboard'; // Mantém rota direta opcional
 
 function AppRouter() {
   return (
     <Router>
       <Routes>
         {/* Rotas Públicas */}
-        <Route path="/login" element={<Login />} />
         <Route path="/parcial" element={<EscalaParcial />} />
         <Route path="/mobile" element={<MobileEscala />} />
         <Route path="/mobile/:linkId" element={<MobileEscala />} />
 
-        {/* Rota semi-protegida (apenas exige login, tratado no componente) */}
+        {/* Rota pública de preços (mantida para quem quiser assinar) */}
         <Route path="/pricing" element={<Pricing />} />
 
-        {/* Rota Protegida do Admin (Proteção adicional dentro do componente) */}
-        <Route
-          path="/admin"
-          element={
-            <SubscriptionGuard>
-              <AdminDashboard />
-            </SubscriptionGuard>
-          }
-        />
+        {/* Admin público opcional (sem guard) */}
+        <Route path="/admin" element={<AdminDashboard />} />
 
-        {/* Rota Protegida (Login + Assinatura Ativa) */}
-        <Route
-          path="/"
-          element={
-            <SubscriptionGuard>
-              <App />
-            </SubscriptionGuard>
-          }
-        />
+        {/* Rota principal aberta */}
+        <Route path="/" element={<App />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

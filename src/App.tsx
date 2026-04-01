@@ -7,9 +7,8 @@ import {
   verificarTamanhoLocalStorage
 } from './utils/optimization';
 
-import { saveEscala, isSupabaseConfigured, getEscalasByUserId } from './supabaseClient';
+import { saveEscala, isSupabaseConfigured } from './supabaseClient';
 import { saveAndReturnLink, copyToClipboard } from './utils/share';
-import { useAuth } from './contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import './App.css';
 import {
@@ -38,7 +37,6 @@ import {
 } from './utils/historyUtils';
 
 function App() {
-  const { user, inviteDetails } = useAuth();
   const navigate = useNavigate();
   const [escala, setEscala] = useState<EscalaData>(() => {
     const savedEscala = localStorage.getItem('escala-horarios');
@@ -176,30 +174,6 @@ function App() {
       localStorage.setItem('escala-cloud-id', cloudId);
     }
   }, [cloudId]);
-
-  // Carregar dados da nuvem ao logar (Modo SaaS)
-  useEffect(() => {
-    async function loadCloudData() {
-      if (!user || user.email === 'armandoo.linares@gmail.com') return; // Admin não carrega escala padrão
-
-      try {
-        const data = await getEscalasByUserId(user.id);
-        if (data && data.data) {
-          // Atualiza o estado da aplicação com a escala vinda do Supabase
-          setEscala(data.data as EscalaData);
-          if (data.mes) setMesAtual(data.mes);
-          if (data.ano) setAnoAtual(data.ano);
-          if (data.id) setCloudId(data.id);
-          console.log('☁️ Escala carregada do Supabase!');
-        }
-      } catch (error) {
-        console.error('Erro ao buscar dados da nuvem:', error);
-      }
-    }
-
-    // Sempre busca da nuvem (Modo SaaS Ativo)
-    loadCloudData();
-  }, [user]);
 
   // Função para sincronizar com a nuvem (Supabase)
   const handleSyncToCloud = async (silent = false) => {
@@ -827,21 +801,6 @@ function App() {
     alert("Escala preenchida com sucesso!");
   };
 
-  let trialDaysLeft: number | null = null;
-  if (inviteDetails && inviteDetails.status === 'approved' && inviteDetails.granted_days != null) {
-    const reviewedAt = inviteDetails.reviewed_at ? new Date(inviteDetails.reviewed_at) : new Date();
-    const end = new Date(reviewedAt);
-    end.setDate(end.getDate() + inviteDetails.granted_days);
-    const now = new Date();
-
-    // Apenas consideramos "trials" as datas palpáveis, e excluímos "ilimitado" (futuro distante)
-    if (end.getFullYear() < 2090) {
-      const diffMs = end.getTime() - now.getTime();
-      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-      trialDaysLeft = diffDays > 0 ? diffDays : 0;
-    }
-  }
-
   return (
     <div className="container">      {/* Notificação Toast de Desfazer (Novo) */}
       <div className={`undo-toast ${undoToast.isVisible ? 'visible' : ''}`}>
@@ -923,20 +882,6 @@ function App() {
               </select>
             </div>
 
-            {trialDaysLeft !== null && (
-              <div
-                className="trial-pill"
-                onClick={() => navigate('/pricing')}
-                title="Clique para garantir seu acesso permanente"
-              >
-                <span className="trial-pill-icon">⏳</span>
-                <span className="trial-pill-text">
-                  {trialDaysLeft > 0 ? `${trialDaysLeft} dias restantes` : 'Teste expirado'}
-                </span>
-                <span className="trial-pill-action">ASSINAR</span>
-              </div>
-            )}
-
             <div className="selector-group theme-toggle-group">
               <button
                 onClick={toggleTheme}
@@ -985,9 +930,6 @@ function App() {
                     <button onClick={() => { setShowConfigModal(true); setShowMenuDropdown(false); }} className="dropdown-item">🕒 HORÁRIOS & REGRAS</button>
                     <button onClick={() => { handleOpenHistory(); setShowMenuDropdown(false); }} className="dropdown-item">🕰️ MÁQUINA DO TEMPO</button>
                     <button onClick={() => { handleDestaque(); setShowMenuDropdown(false); }} className="dropdown-item">👑 DESTAQUE</button>
-                    {user?.email === 'armandoo.linares@gmail.com' && (
-                      <button onClick={() => navigate('/admin')} className="dropdown-item text-green">⚙️ PAINEL ADMIN</button>
-                    )}
                   </div>
 
                   <div className="dropdown-divider"></div>
