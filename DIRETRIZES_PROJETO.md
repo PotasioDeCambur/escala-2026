@@ -1,0 +1,50 @@
+# Diretrizes do Projeto - Escala de Horários
+
+Este documento serve como guia para agentes de IA e desenvolvedores, garantindo consistência visual e segurança no desenvolvimento.
+
+## 🎨 1. Diretrizes Visuais (Design System)
+
+O sistema deve manter uma estética **Premium, Moderna e Limpa**.
+
+### ✨ Estilo Visual
+- **Glassmorphism**: Uso de transparências com desfoque (`backdrop-filter: blur`) em elementos flutuantes (Header, Modais, Footer).
+- **Cores**:
+  - Respeitar a paleta definida em `:root` (`MobileEscala.css` e `App.css`).
+  - **Fundo**: Escuro (`#121212`, `#1e1e1e`) com gradientes sutis para profundidade.
+  - **Acentos**: Roxo (`#bb86fc`), Verde Água (`#03dac6`) e Laranja para destaques.
+  - **Texto**: Branco (`#ffffff`) e Cinza Claro (`#e0e0e0`) para leitura confortável.
+- **Tipografia**: Fontes modernas (`Inter`, `Roboto`, `Roboto Condensed`). Títulos em caixa alta com espaçamento (`letter-spacing`) para elegância.
+
+### 📱 Experiência Mobile (UX)
+- **Toque**: Elementos clicáveis devem ter tamanho adequado para dedos (mínimo 44px).
+- **Sem Barreiras**: Evitar scrolls desnecessários. O conteúdo deve se ajustar fluidamente.
+- **Feedback**: Botões e itens interativos devem ter estados de `:active` e `:hover` (transform, shadow).
+
+## 🛡️ 2. Regras de Desenvolvimento (Segurança)
+
+### 🚫 "Não Quebre o Código"
+- **Escopo Limitado**: Ao atender uma solicitação, altere **APENAS** o trecho necessário. Não refatore arquivos inteiros sem necessidade explícita.
+- **Respeito à Lógica Existente**: Entenda como o estado (React State) e os Hooks funcionam antes de mexer.
+- **Preservação de Funcionalidades**: Garantir que funcionalidades críticas (Sincronização Supabase, Cálculos de Data) permaneçam intactas.
+
+### 🧪 Boas Práticas
+- **Clean Code**: Nomes de variáveis claros, funções pequenas.
+- **CSS e Modo Escuro (OBRIGATÓRIO)**: Ao criar novas telas ou componentes, **NUNCA** use cores chumbadas (*hardcoded*) como `#FFFFFF`, `white`, ou `#000` para fundos e textos. Use **sempre** variáveis semânticas globais para garantir compatibilidade nativa entre Modo Claro e Modo Escuro:
+  - Fundos gerais: `var(--background)`
+  - Fundo de containers/tabelas/modal: `var(--surface)` ou `var(--highlight-bg)`
+  - Textos principais: `var(--text-main)` ou secundários `var(--text-secondary)`
+  - Bordas e linhas limitadoras: `var(--border)`
+- **Comentários**: Explicar trechos complexos, especialmente lógica de data e banco de dados.
+
+---
+*Este documento deve ser consultado antes de qualquer alteração significativa.*
+
+## 🚀 3. Git e Controle de Versão (Escala Premium)
+
+Ao realizar *commits* e *pushes* via agente, lembre-se destas diretrizes críticas em relação ao PowerShell do sistema:
+- **Execução Única**: Não utilizar operadores como `&&` ou `||` para encadear comandos, pois o terminal padrão do Windows pode apresentar erros (`InvalidEndOfLine`). Execute os comandos sempre de maneira sequential:
+  1. `git add .`
+  2. `git commit -m "tipo(escopo): descrição concisa do que foi alterado"`
+  3. `git push origin main`
+- **Destino Final**: Todo o código desta pasta (`escala`) está conectado 100% ao repositório `escala-premium`.
+- Foi criado o workflow `.agents/workflows/github-push.md` que possui esses passos marcados com `// turbo` para facilitar uploads automáticos pelo assistente.
